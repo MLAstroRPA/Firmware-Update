@@ -5,6 +5,191 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ---
 
 
+## [1.3.0] - 2026-09-12
+
+### Added — mDNS hostname `MLAstroRPA.local`
+
+- The firmware now advertises a fixed mDNS hostname **`MLAstroRPA.local`** (`ESPmDNS`, plus the
+  `_http._tcp:80` service) so a PC/plugin can reach the device by name instead of a hard-coded IP.
+  The DHCP hostname for Station mode is set to the same name before `WiFi.begin()`.
+- mDNS is started right after the AP/STA bring-up and **self-retries every 5 s** from the network
+  task if the first `MDNS.begin()` fails, so a slow WiFi start cannot leave the device undiscoverable.
+- Fallback unchanged: connecting by IP (`192.168.4.1` in AP mode) still works when mDNS is blocked.
+
+### Added — PC (plugin) control over WebSocket (handshake `MLAstroRPA-TC`)
+
+- The plugin/PC can take control over the **same `/ws` endpoint** as the Web UI by sending
+  `{"cmd":"handshake","data":{"key":"MLAstroRPA-TC"}}` as its first frame — the WebSocket
+  equivalent of the serial `[MLAstroRPA-TC]` handshake. Reply is
+  `{"cmd":"handshakeResult","result":true,"transport":"ws","fw_ver":...,"serial_locked":true}`.
+- PC (wireless) control has the **same priority as Serial**: `stopAllMotion(true)`, Web master
+  handshake revoked, and every Web client is notified with the existing `controlTakenBySerial`
+  message (`serial_locked:true`) so the Web UI stays **monitoring** while its controls are locked.
+- **Only one PC session** is allowed: a second PC handshake is refused (`result:false`, socket closed
+  with code `1008`). Exception: same remote IP with a dead previous socket (plugin restart) triggers a
+  takeover instead of a lockout. `keepAlivePeriod(15 s)` releases the slot if a PC socket dies silently.
+- New `{"cmd":"releaseControl"}` (graceful release, mirrors the Serial `Disconnect` command) and a
+  `{"cmd":"controlReleased","serial_locked":false}` broadcast on PC disconnect — the Web UI unlocks
+  and regains control **without a page refresh**.
+- Serial commands are only accepted while the PC owns control **through the serial port**
+  (`pcTransport == PC_SERIAL`), so a USB-serial app cannot inject commands during a wireless session.
+- **Client roles:** a new client is accepted provisionally and must either handshake (PC) or be the
+  only Web client; an extra Web client is rejected after a ~1.5 s grace window with the same
+  `connectionRejected` message as before. Telemetry/log broadcasts are unchanged (all clients), so a
+  locked Web UI keeps updating live data. Web UI lock texts now read *PC (Serial/Wireless) Control is
+  Active* instead of *Serial Control*.
+
+**Files:** `src/main.cpp`, `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `src/Web/WebControl.cpp`,
+`src/Web/WebControl.h`, `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`, `data/script.js`,
+`src/Websocket-protocol.md`
+
+### Changed — log replay + RAM (serial-log queue is now allocated on demand)
+
+- The recent-log replay (12 lines) is now **deferred and skipped for the PC/plugin** client: it is
+  queued at `WS_EVT_CONNECT` and sent ~1 s later only to clients that did **not** handshake with
+  `MLAstroRPA-TC`. Previously every new client got the replay immediately, so the plugin's System log
+  re-displayed the previous session's events the moment it connected.
+- `serialLogQueue` (~19 KB: 32 slots × ~604 B) is **no longer allocated at boot**; `networkTask`
+  creates it only while the Web UI's *serial log* forwarding is enabled and deletes it when disabled
+  (create/delete happen in the same task as the drain loop, so there is no race). While disabled this
+  also removes the per-log 604-byte copy.
+- The replay scratch buffer (`12 × 128 B`) moved from the network-task stack to a `static` buffer,
+  giving `networkTask` ~1.5 KB more stack headroom. Note: total DRAM is unchanged by this (1.5 KB
+  moves from stack to `.bss`, hence "RAM used" in the build report rises by exactly that much);
+  the ~19 KB gain above is heap, taken only when the serial log is switched off.
+
+**Files:** `src/main.cpp`, `src/Web/WebControl.cpp`
+
+### Added — WebSocket command & alarm channel for PC clients
+
+- New WebSocket command `{"cmd":"stopMove","data":{"axis":"az|alt"}}`: **decelerating** single-axis
+  stop for jog release. `stop`/`forceStop` intentionally keep their hard-stop behaviour (they cancel
+  the far target with `setCurrentPosition()`). The Web UI now uses `stopMove` for jog release
+  (mouse-up/leave, touch-end, arrow key-up).
+- **Speed-aware stop in every jog path:** `AccelStepper::stop()` is a no-op while `_speed == 0`, so a
+  release landing while the axis was stopped left the far target `move(±1e9)` armed and the axis
+  started moving again. All three stop paths now use
+  `if (fabs(speed) > 1.0f) { setAcceleration(decel); stop(); } else { setCurrentPosition(currentPosition()); }`
+  (WS `stopMove`, Serial jog release `MAzL:0`/`MAlU:0`, Serial 500 ms jog watchdog), plus a 2 s
+  WebSocket safety net that force-cancels the target if the axis is still running.
+- The firmware's dedicated error telemetry (`ERROR:Code:value,...`, edge-triggered) is now **also
+  broadcast over WebSocket** as `{"error":"ERROR:..."}` — a plugin/web client connected without a USB
+  cable gets the full driver alarm table and error logs. The WebSocket broadcast is sent **before and
+  independently of the UART TX-buffer gate** (the 250 ms telemetry stream keeps that buffer almost
+  permanently busy) and keeps its own "last sent" marker; the marker is reset right after a successful
+  handshake, so a client that just connected receives the current alarm state immediately.
+
+**Files:** `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`, `src/main.cpp`, `data/script.js`,
+`src/Websocket-protocol.md`
+
+### Changed — Two-way setting sync (Relative mode, speed level, config)
+
+- `broadcastRelativeState()` publishes `{"relative":{"mode":…,"d":…,"m":…,"s":…}}` to **every**
+  client and is called at all four places that change that state: WS `saveConfig`, WS `applyConfig`,
+  Serial `JoRe` and Serial `ReDe`/`ReAM`/`ReAS`. The Web UI updates its Jog/Relative toggle
+  immediately (no F5) and the PC plugin reads the value back, so a PC-driven change can no longer
+  leave the Web UI showing *Jog*; the echo loop is prevented by the Web UI's `isUpdatingFromWS` flag.
+- `speedLevel` is broadcast as `{"speedLevel":N}` the moment it changes (WS `speedLevel`, Serial `SLvl`),
+  so the active speed button follows along without APPLY.
+- The `configSaved` ack carries the caller's `origin` (`data["origin"] | "webSave"`), so a PC plugin
+  can tag its own writes (`origin:"pcPlugin"`) and the Web frontend does not mistake them for the ack
+  of its *SAVE ALL & REBOOT* flow.
+
+**Files:** `src/Web/WebControl.cpp`, `src/Web/WebControl.h`, `src/Serial/SerialControl.cpp`
+
+### Changed — Identical logs on every control path (Serial / Web / PC-over-WebSocket)
+
+- Every action leaves the **same log line** whichever transport performed it. Serial gained the lines
+  it was missing: `Set Home: Position reset to 0` (`SetH`), `Home status reset to false` (`RstH`),
+  `Ignored ReturnHome: Not homed yet`, `Ignored Align: Not homed yet`,
+  `SOFT LIMIT: Align command refused - Az/Alt target … out of range […]`,
+  `Align AZ/ALT: Escaping Hard Limit`, `ERROR: Hardlimit reached! Movement blocked.`
+- Refusals and limit events are logged **once per event** instead of once per repeated command: the jog
+  guard logs only the first refusal of a press (the client repeats the command every 250 ms while the
+  button is held), and that line is worded `AZ/ALT jog refused (already at soft limit)` — distinct from
+  the guard's `AZ/ALT Soft limit reached`, which means the axis was just decelerated to a stop at the edge.
+- **Soft-limit refusals of auto / relative / align commands** (previously silent on both paths) now log
+  `SOFT LIMIT: relative move refused - target … out of range […]` and
+  `SOFT LIMIT: Align command refused - Az/Alt target … out of range […]`, so a refusal is visible in
+  the Web log and in the plugin System log alike.
+- Lines that stay transport-specific by design: `Serial: AZ/ALT Jog Timeout. Stopping.` (Serial 500 ms
+  jog watchdog), `… jog release: still running -> FORCE stop (safety net).` (WebSocket only), the
+  WebSocket handshake/role/PC-disconnect lines, `Factory Zero set at current position…`
+  (`setFactoryZero` is WS-only) and `ApplyConf: Settings applied from Serial.`
+
+**Files:** `src/Serial/SerialControl.cpp`, `src/Web/WebControl.cpp`
+
+### Changed — Jog & soft limits: refuse only at the limit, warn on every refusal
+
+- The continuous-jog guard refuses **only when the axis is already at/past the limit** in the jogging
+  direction. Jogging towards the limit runs and decelerates normally; the global guard in `loop()`
+  still stops the axis exactly at the edge (hard-cancel), so a far target can never push it past.
+- Jogging while parked at the limit logs `AZ Soft limit reached` / `ALT Soft limit reached` like
+  reaching the edge while moving, rate-limited to one line per 800 ms so holding the button cannot
+  flood the log.
+- **New `CmdRf` bitfield in ERROR telemetry** — one bit per refused command type
+  (`REL_AZ=0x01, REL_ALT=0x02, ALN_AZ=0x04, ALN_ALT=0x08, JOG_AZ=0x10, JOG_ALT=0x20, ALN_OVS=0x40`).
+  A bit is set the moment the command is refused and auto-clears 1.5 s after the last refusal ("the
+  command is no longer being issued"); it is cleared when the PC releases control. Because it is
+  carried as a **WARNING** on every ERROR telemetry frame, it never locks the system.
+- Bits are raised at every refusal point — relative move (both axes), align target (both axes), align
+  overshoot leg and jog at the limit (both axes) — on **both** transports, so a plugin can decode them
+  into individual alarm rows. Jog bits are raised only while `AzSL`/`AlSL` are off, so a soft-limit
+  stop produces exactly **one** alarm instead of two.
+
+### Changed — One config JSON for every client (connect snapshot + config pushes)
+
+- The whole configuration (`wifi_ap` + STA info + `align_mode` + `limits` + `motor` + `serial` +
+  `backlash` + `relative` + `align`) is produced by a **single** `fillConfigSections()`, shared by the
+  connect snapshot and by the config push. Adding a setting now means touching one place only, and the
+  Web UI and the PC plugin can never disagree (previously two hand-written JSON blocks existed in
+  parallel and the push frame was missing `align_mode`/`wifi_ap` altogether).
+- `wifi_ap.mac` and `sta_mac` are included so a plugin can display `APma`/`STAm` without a Serial link.
+- `broadcastConfig()` (previously only used by the Serial `ApplyConf` path) now also runs for the
+  WebSocket `saveConfig` and `applyConfig` commands, **before** the `configSaved`/`configApplied` ack:
+  a client that is already connected refreshes its settings instead of keeping the copy it read at
+  connect time.
+
+**Files:** `src/Web/WebControl.cpp`, `src/Websocket-protocol.md`
+
+### Changed — WiFi STA failure diagnostics + passwords are no longer broadcast
+
+- **The failure line now carries the diagnosis:**
+  `STA disconnected/failed - keep AP alive (reason: 201 - NO_AP_FOUND …) | SSID:"Alita" pass:"…" (9 chars) | attempt: 3 | status: 6 | AP: 192.168.4.1`
+  — reason code + meaning, the SSID/password actually being used (catches a wrong or half-written
+  credential), retry count, driver status and whether the AP is still alive. A successful join logs
+  BSSID/channel/RSSI as well. The reason is reported by a dedicated WiFi event handler which is
+  registered *before* the main one, because the framework dispatches callbacks in registration order.
+  The retry policy itself is unchanged (`MAX_WIFI_RETRY = 5` attempts, one per second).
+- **WiFi passwords are no longer broadcast.** `wifi_ap.pass` and the STA `pass` were part of the
+  connect snapshot *and* of every `config_pushed` frame — and those frames go to **all** clients and
+  are re-sent on every configuration change. A client now asks on demand with the new `getConfig`
+  command and receives a `configRead` reply addressed **only to the requester**, mirroring the serial
+  `STAp:?` / `APpa:?` query. The Web UI and the plugin only fetch the password when the user presses
+  the eye button.
+- **An empty network field can no longer erase a stored value.** `STAs` / `STAp` / `APss` / `APpa` /
+  `APip` and the `wifi` / `wifi_ap` sections of `saveConfig` now treat an empty string as *"keep the
+  current value"* (`ConfigManager::saveWiFi/saveAP` skip empty fields). A blank password box (page just
+  loaded, or a WPF binding writing an intermediate `""`) used to wipe the password in FRAM, after which
+  every connection failed with reason 15 and nothing could recover it.
+- **Boot-time warning** when the stored credentials cannot work:
+  `WARNING: STA password is EMPTY -> WiFi connect will always fail (reason 15). …`, plus warnings for an
+  empty AP SSID / open AP.
+- **AP hardening + client visibility.** `startAP()` now validates the stored `ap_ip` / `ap_subnet` (must
+  be a private LAN address and a contiguous mask ≥ /16) and falls back to `192.168.4.1` / `255.255.255.0`.
+  A nonsense value such as `1.3.0.1` — what the version-pump script produced when it rewrote the AP IP
+  placeholder into the release number — let the AP "start" while handing out unusable addressing, so
+  clients could join the AP but never reach the Web UI (symptom: "DHCP looks disabled"). The AP is now
+  created with an explicit `max_connection = 4` (Arduino-ESP32 allows 1–4; the old call relied on the
+  core default) and logs its limit plus every join/leave:
+  `[WIFI][AP] max clients: 4 | clients now: n` and `[WIFI][AP] client joined -> n/4`.
+
+**Files:** `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `src/Web/WebControl.cpp`,
+`src/Serial/SerialControl.cpp`, `src/FRAM/configmanager.cpp`, `src/main.cpp`, `data/index.html`,
+`data/script.js`, `src/Serial-protocol.md`, `src/Websocket-protocol.md`, `Documentation/`
+
+---
+
 ## [1.2.72] - 2026-09-11
 
 ### Fixed — Backlash Compensation Now Really Moves the Axis on Relative (Step) Moves

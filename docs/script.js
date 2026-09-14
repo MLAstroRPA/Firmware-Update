@@ -811,14 +811,15 @@ function updateUI(data) {
     const el = document.getElementById('wifi-ssid');
     if (el) el.value = data.ssid;
   }
-  if (data.pass !== undefined) {
-    const el = document.getElementById('wifi-pass');
-    if (el) el.value = data.pass;
+  // Lưu ý BẢO MẬT: password KHÔNG còn nằm trong snapshot/broadcast (xem fillConfigSections bên
+  // firmware) nên KHÔNG tự điền vào ô nhập nữa — chỉ tải khi người dùng bấm con mắt (xem
+  // requestPassword() / applyPasswordFetch()). Ô để trống khi bấm SAVE có nghĩa là "giữ nguyên".
+  if (data.cmd === 'configRead' && data.data !== undefined) {
+    applyPasswordFetch(data.data);
   }
   // Cập nhật AP Settings
   if (data.wifi_ap !== undefined) {
     if (data.wifi_ap.ssid !== undefined) document.getElementById('ap-ssid').value = data.wifi_ap.ssid;
-    if (data.wifi_ap.pass !== undefined) document.getElementById('ap-pass').value = data.wifi_ap.pass;
     if (data.wifi_ap.ip !== undefined) document.getElementById('ap-ip').value = data.wifi_ap.ip;
     if (data.wifi_ap.subnet !== undefined) document.getElementById('ap-subnet').value = data.wifi_ap.subnet;
   }
@@ -1057,15 +1058,21 @@ function updateUI(data) {
     appendLog(data.log);
   }
 
-  // Xử lý trạng thái khóa (PC Serial đang điều khiển)
+  // Xử lý trạng thái khóa (PC Serial/Wireless đang điều khiển)
   if (data.serial_locked !== undefined) {
     applySystemLock(!!data.serial_locked);
   }
 
-  // Serial chiếm quyền điều khiển từ Web -> khóa Web, cần refresh để bắt tay lại
+  // PC chiếm quyền điều khiển từ Web -> khóa điều khiển (vẫn monitor bình thường)
   if (data.cmd === 'controlTakenBySerial') {
     applySystemLock(true);
-    appendLog(data.reason || 'Serial (PC) took over control. Web is locked - refresh to re-handshake.');
+    appendLog(data.reason || 'PC took over control. Web is locked - monitoring only.');
+  }
+
+  // PC nhả quyền (plugin ngắt / gửi releaseControl) -> Web mở khóa NGAY, không cần refresh
+  if (data.cmd === 'controlReleased') {
+    applySystemLock(false);
+    appendLog(data.reason || 'PC released control. Web control available.');
   }
 
   // Xử lý log Serial TX/RX
@@ -1515,7 +1522,8 @@ Object.keys(moveButtons).forEach(btnId => {
     if (isRelativeMode) return;
     if (isPressed) {
       isPressed = false;
-      sendCommand('stop', {});
+      // Nhả jog = giảm tốc mượt theo trục (stopMove), KHÔNG dùng 'stop' (dừng đột ngột).
+      sendCommand('stopMove', { axis });
     }
   });
   
@@ -1524,7 +1532,7 @@ Object.keys(moveButtons).forEach(btnId => {
     if (isRelativeMode) return;
     if (isPressed) {
       isPressed = false;
-      sendCommand('stop', {});
+      sendCommand('stopMove', { axis });
     }
   });
   
@@ -1539,7 +1547,7 @@ Object.keys(moveButtons).forEach(btnId => {
   btn.addEventListener('touchend', (e) => {
     if (e.cancelable) e.preventDefault(); // Ngăn chặn hành động mặc định
     if (isRelativeMode) return;
-    sendCommand('stop', {});
+    sendCommand('stopMove', { axis });
   });
 
   // Handle Relative Move (Click)
@@ -1739,6 +1747,70 @@ if (scanWifiBtn) {
     sendCommand('scanWifi', {});
   });
 }
+
+// ===== WIFI PASSWORD: TẢI THEO YÊU CẦU (nút con mắt) =====
+// Vì sao không điền sẵn: password KHÔNG nằm trong snapshot/broadcast (frame đó gửi cho MỌI client
+// và được push lại mỗi lần cấu hình đổi). Muốn xem thì bấm con mắt → gửi `getConfig` → firmware trả
+// riêng cho client này → mới hiển thị. Đối xứng với `STAp:?` / `APpa:?` của đường Serial.
+// Khi lưu: để trống ô = giữ nguyên password hiện tại (firmware bỏ qua field rỗng).
+const _passFetchPending = { sta: false, ap: false };
+
+function requestPassword(which) {
+  const input = document.getElementById(which === 'sta' ? 'wifi-pass' : 'ap-pass');
+  const btn = document.getElementById(which === 'sta' ? 'wifi-pass-eye' : 'ap-pass-eye');
+  if (!input) return;
+
+  _passFetchPending[which] = true;
+  if (btn) btn.textContent = '⏳';
+  input.placeholder = 'Requesting from device...';
+  // keys: "pass" = mật khẩu WiFi (STA); "wifi_ap" = ssid + mật khẩu AP
+  sendCommand('getConfig', { keys: [which === 'sta' ? 'pass' : 'wifi_ap'] });
+}
+
+function applyPasswordFetch(data) {
+  const reveal = (which, value) => {
+    const input = document.getElementById(which === 'sta' ? 'wifi-pass' : 'ap-pass');
+    const btn = document.getElementById(which === 'sta' ? 'wifi-pass-eye' : 'ap-pass-eye');
+    if (!input) return;
+    input.value = value || '';
+    input.placeholder = 'Leave blank = keep current';
+    input.type = 'text';                 // hiện ra sau khi nhận được
+    if (btn) btn.textContent = '🙈';
+  };
+
+  if (_passFetchPending.sta && data.pass !== undefined) {
+    _passFetchPending.sta = false;
+    reveal('sta', data.pass);
+  }
+  if (_passFetchPending.ap && data.wifi_ap && data.wifi_ap.pass !== undefined) {
+    _passFetchPending.ap = false;
+    reveal('ap', data.wifi_ap.pass);
+  }
+}
+
+// Nút con mắt: đã có giá trị ⇒ chỉ ẩn/hiện; chưa có ⇒ hỏi thiết bị rồi mới hiện.
+function bindPasswordEye(btnId, inputId, which) {
+  const btn = document.getElementById(btnId);
+  const input = document.getElementById(inputId);
+  if (!btn || !input) return;
+
+  btn.addEventListener('click', () => {
+    if (input.type === 'text') {          // đang hiện ⇒ ẩn đi
+      input.type = 'password';
+      btn.textContent = '👁';
+      return;
+    }
+    if (input.value) {                    // đã tải/đã nhập rồi ⇒ hiện luôn
+      input.type = 'text';
+      btn.textContent = '🙈';
+      return;
+    }
+    requestPassword(which);               // chưa biết ⇒ tải theo yêu cầu
+  });
+}
+
+bindPasswordEye('wifi-pass-eye', 'wifi-pass', 'sta');
+bindPasswordEye('ap-pass-eye', 'ap-pass', 'ap');
 
 // ===== ADMIN CONFIG =====
 const adminBtn = document.getElementById('admin-config-btn');
@@ -2150,8 +2222,10 @@ if(exportLogBtn) exportLogBtn.addEventListener('click', () => {
 
 // ===== UTILITY FUNCTIONS =====
 function sendCommand(cmd, data) {
-  if (systemLocked && cmd !== 'scanWifi' && cmd !== 'setSerialLog' && cmd !== 'setCommWatchdog' && cmd !== 'resetError') {
-    appendLog('WARNING: System is locked by PC (Serial Control is Active).');
+  // `getConfig` được phép cả khi hệ thống đang bị PC giữ quyền: nó chỉ ĐỌC thông tin (password WiFi)
+  // để hiển thị, không thay đổi gì — giống như đọc System log.
+  if (systemLocked && cmd !== 'scanWifi' && cmd !== 'setSerialLog' && cmd !== 'setCommWatchdog' && cmd !== 'resetError' && cmd !== 'getConfig') {
+    appendLog('WARNING: System is locked by PC (Serial/Wireless Control is Active).');
     return false;
   }
   if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -2182,7 +2256,7 @@ function applySystemLock(locked) {
   });
   updateMotionControls();
   if (locked) {
-    appendLog('WARNING: System is locked by PC (Serial Control is Active).');
+    appendLog('WARNING: System is locked by PC (Serial/Wireless Control is Active).');
   } else {
     appendLog('System unlocked. Web control available.');
   }
@@ -3522,8 +3596,11 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('keyup', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-    sendCommand('stop', {});
+  // Nhả phím mũi tên = giảm tốc mượt theo trục (stopMove), không dừng đột ngột.
+  const axisByKey = { ArrowUp: 'alt', ArrowDown: 'alt', ArrowLeft: 'az', ArrowRight: 'az' };
+  const axis = axisByKey[e.key];
+  if (axis) {
+    sendCommand('stopMove', { axis });
   }
 });
 
