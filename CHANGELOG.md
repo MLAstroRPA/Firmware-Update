@@ -5,6 +5,52 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ---
 
 
+## [1.4.0] - 2026-09-15
+
+### Added — boot status beep + panic core dump
+
+- **Boot status beep.** After the boot banner the firmware plays **1 beep** when the network is up
+  (STA connected when an STA SSID is configured; AP-only counts as OK) **and** mDNS is up, or
+  **2 beeps** when one of the two is still missing after 30 s (`BEEP_BOOT_OK` / `BEEP_BOOT_FAIL`,
+  one-shot, the buzzer returns to idle). Gives a hands-free "did it come up?" answer with the device
+  already mounted on the mount. Log: `BOOT AUDIO: 1 beep - STA <ip>, mDNS up (MLAstroRPA.local)` /
+  `BOOT AUDIO: 2 beeps - STA FAILED, mDNS FAILED`.
+- **`coredump` partition (64 KB) written to flash.** The framework was already compiled with
+  `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`, but no partition existed to write to, so a panic logged
+  `No core dump partition found!` and left nothing behind. Panic dumps are now stored at `0x390000`
+  and survive the reboot, so a rare crash in the field can be decoded offline
+  (`py -m esptool read-flash 0x390000 0x10000 core.bin` + `xtensa-esp32-elf-gdb`).
+- **New partition table** `partitions_coredump.csv` (replaces `default_ota.csv`): app slots grow to
+  1,835,008 B each, spiffs shrinks from 1.44 MB to 393,216 B (~1.6x the 244,765 B Web UI payload).
+  Free space per app slot goes from ~0 to **~542 KB** at the current firmware size, which gives the
+  next features room without touching the layout again.
+
+### Fixed — mDNS: self-probe removed (it rebuilt mDNS every 10 minutes)
+
+- The health-check that 1.3.1 was supposed to have removed was still fired by `ensureMDNSProbe()`:
+  it queried the device's **own** responder (`mdns_query_a("MLAstroRPA.local")`), which never answers
+  its own query in this build, so the probe "failed" twice in a row and the code rebuilt mDNS every
+  10 minutes. Each rebuild silences the responder for a few hundred ms, which clients see as
+  `MLAstroRPA.local` resolution stalling (Serial log: `[WIFI][MDNS] restart (probe failed) -> OK`).
+  `ensureMDNSProbe()`, the `MDNS_PROBE_*` constants and `g_mdns_probe_fails` are gone; mDNS is
+  rebuilt only on real network events (first AP client, STA IP changed, STA disconnected) plus one
+  5 s `startMDNS()` retry at boot.
+- Modem sleep stays disabled (`WiFi.setSleep(false)`), which is the real fix for a silently dying
+  responder — the periodic restart is not needed any more.
+
+### Changed — flash offsets follow the new partition table
+
+- SPIFFS offset `0x290000` -> **`0x3a0000`**; bootloader and partition table are exported under fixed
+  names (`bootloader.bin`, `partitions.bin`). Combined with the 1.3.1 change (`e8fb9cf` OTA
+  hardening) this bumps the MINOR version.
+- A device still on the old layout must be flashed **once over USB** (bootloader + partitions +
+  firmware + spiffs). Wi-Fi OTA keeps working before and after (partitions are looked up by name).
+
+**Files:** `src/main.cpp`, `src/GPIO/BuzzerControl.cpp`, `src/GPIO/BuzzerControl.h`,
+`src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `partitions_coredump.csv`, `platformio.ini`,
+`data/index.html`, `data/script.js`, `.vscode/FORCE-COPY.py`, `.vscode/Flash_*.bat`, `README.MD`,
+`Documentation/User manual.md`, `TestTool/mock_server.py`, `CHANGELOG.md`
+
 ## [1.3.1] - 2026-09-14
 
 ### Fixed — mDNS: no periodic restarts any more, rebuild only when it matters
