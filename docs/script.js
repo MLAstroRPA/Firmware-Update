@@ -2438,11 +2438,17 @@ function applyTheme(theme) {
 }
 
 function updateStepperDisplay(id) {
+  // Ô Relative giờ là <input type="number"> hiển thị trực tiếp (nhập được bằng bàn phím), không còn
+  // span hiển thị riêng ⇒ hàm này chỉ có nhiệm vụ ép giá trị về đúng khoảng min/max khai báo.
   const input = document.getElementById(id);
-  const display = document.getElementById('disp-' + id);
-  if (input && display) {
-    display.textContent = input.value;
-  }
+  if (!input) return;
+  const min = parseInt(input.getAttribute('min'));
+  const max = parseInt(input.getAttribute('max'));
+  let val = parseInt(input.value);
+  if (isNaN(val)) val = 0;
+  if (!isNaN(min) && val < min) val = min;
+  if (!isNaN(max) && val > max) val = max;
+  input.value = String(val);
 }
 
 // ===== OTA UPDATE FUNCTIONS =====
@@ -3334,6 +3340,26 @@ function initSteppers() {
         updateStepperDisplay(targetId);
         saveRelativeSettings(); // Lưu ngay khi thay đổi giá trị
       }
+    });
+  });
+
+  // ===== NHẬP BẰNG BÀN PHÍM cho Relative D/M/S =====
+  // Giới hạn: độ 0-5, phút 0-59, giây 0-59 (khai báo trong min/max của input + ép lại khi gõ).
+  // Đang gõ: chỉ ép khoảng (không gửi lệnh) — Chốt (Enter/blur): chuẩn hoá rồi lưu vào FRAM thiết bị.
+  ['rel-d', 'rel-m', 'rel-s'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      const max = parseInt(el.getAttribute('max'));
+      if (el.value === '' || isNaN(max)) return;   // đang xoá để gõ lại
+      const v = parseInt(el.value);
+      if (isNaN(v)) return;
+      if (v > max) el.value = String(max);
+      else if (v < 0) el.value = '0';
+    });
+    el.addEventListener('change', () => {
+      updateStepperDisplay(id);
+      saveRelativeSettings();
     });
   });
 }

@@ -14,8 +14,8 @@
         <h1 class="brand-title">MLAstro RPA</h1>
         <p class="brand-subtitle">Robotic Polar Alignment</p>
         <div class="version-info">
-          <span id="display-fw-ver">Firmware 1.3.0</span>
-          <span id="display-spiffs-ver" style="display:none;">spiffs 1.3.0</span>
+          <span id="display-fw-ver">Firmware 1.3.1</span>
+          <span id="display-spiffs-ver" style="display:none;">spiffs 1.3.1</span>
         </div>
       </div>
       <div class="header-tools">
@@ -88,27 +88,24 @@
               <div class="relative-steppers">
                 <div class="stepper-wrapper">
                   <button class="step-btn" data-target="rel-d" data-step="-1">-</button>
-                  <div class="step-display">
-                    <span id="disp-rel-d">0</span><span class="step-unit">°</span>
-                  </div>
+                  <input type="number" id="rel-d" class="step-display step-input" value="0" min="0" max="5" step="1"
+                         inputmode="numeric" aria-label="Relative degrees">
+                  <span class="step-unit">°</span>
                   <button class="step-btn" data-target="rel-d" data-step="1">+</button>
-                  <input type="hidden" id="rel-d" value="0" min="0" max="2">
                 </div>
                 <div class="stepper-wrapper">
                   <button class="step-btn" data-target="rel-m" data-step="-5">-</button>
-                  <div class="step-display">
-                    <span id="disp-rel-m">0</span><span class="step-unit">'</span>
-                  </div>
+                  <input type="number" id="rel-m" class="step-display step-input" value="0" min="0" max="59" step="1"
+                         inputmode="numeric" aria-label="Relative arcminutes">
+                  <span class="step-unit">'</span>
                   <button class="step-btn" data-target="rel-m" data-step="5">+</button>
-                  <input type="hidden" id="rel-m" value="0" min="0" max="60">
                 </div>
                 <div class="stepper-wrapper">
                   <button class="step-btn" data-target="rel-s" data-step="-5">-</button>
-                  <div class="step-display">
-                    <span id="disp-rel-s">1</span><span class="step-unit">"</span>
-                  </div>
+                  <input type="number" id="rel-s" class="step-display step-input" value="1" min="0" max="59" step="1"
+                         inputmode="numeric" aria-label="Relative arcseconds">
+                  <span class="step-unit">"</span>
                   <button class="step-btn" data-target="rel-s" data-step="5">+</button>
-                  <input type="hidden" id="rel-s" value="1" min="0" max="60">
                 </div>
               </div>
             </div>
@@ -116,13 +113,27 @@
 
           <div class="manual-wrapper">
             <div class="directional-pad">
-              <button class="arrow-btn up" id="btn-up">▲<span class="arrow-label">Alt</span></button>
+              <button class="arrow-btn up" id="btn-up">
+                <!-- Rounded triangle (same geometry as the NINA plugin): the shape is the button,
+                     the Alt/Az label stays inside it. -->
+                <svg class="arrow-shape" viewBox="0 0 100 91" aria-hidden="true"><path d="M 50,13 L 87,78 L 13,78 Z"/></svg>
+                <span class="arrow-label">Alt</span>
+              </button>
               <div class="middle-row">
-                <button class="arrow-btn left" id="btn-left">◄<span class="arrow-label">Az</span></button>
+                <button class="arrow-btn left" id="btn-left">
+                  <svg class="arrow-shape" viewBox="0 0 91 100" aria-hidden="true"><path d="M 78,13 L 78,87 L 13,50 Z"/></svg>
+                  <span class="arrow-label">Az</span>
+                </button>
                 <button class="arrow-btn stop" id="btn-stop">⏹</button>
-                <button class="arrow-btn right" id="btn-right">►<span class="arrow-label">Az</span></button>
+                <button class="arrow-btn right" id="btn-right">
+                  <svg class="arrow-shape" viewBox="0 0 91 100" aria-hidden="true"><path d="M 13,13 L 13,87 L 78,50 Z"/></svg>
+                  <span class="arrow-label">Az</span>
+                </button>
               </div>
-              <button class="arrow-btn down" id="btn-down">▼<span class="arrow-label">Alt</span></button>
+              <button class="arrow-btn down" id="btn-down">
+                <svg class="arrow-shape" viewBox="0 0 100 91" aria-hidden="true"><path d="M 13,13 L 87,13 L 50,78 Z"/></svg>
+                <span class="arrow-label">Alt</span>
+              </button>
             </div>
           </div>
         </div>

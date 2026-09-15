@@ -24,6 +24,10 @@
   --header-bg: #2c3e50;
   --header-text: #ecf0f1;
   --bg-log: #f8f9fa;
+
+  /* Direction-pad triangle colours (light default) */
+  --arrow-fill: #7d8c9e;
+  --arrow-fill-hover: #66758a;
 }
 
 /* Dark Mode Variables (Applied via Media Query or Class) */
@@ -38,6 +42,8 @@
     --header-bg: #0a1520;
     --border: #4a5568;
     --bg-log: #000000;
+    --arrow-fill: #4a5568;
+    --arrow-fill-hover: #5b6a80;
   }
 }
 
@@ -52,6 +58,8 @@
   --header-bg: #0a1520;
   --border: #4a5568;
   --bg-log: #000000;
+  --arrow-fill: #4a5568;
+  --arrow-fill-hover: #5b6a80;
 }
 
 /* Force Light Mode Class */
@@ -66,6 +74,8 @@
   --header-text: #ecf0f1;
   --border: #bdc3c7;
   --bg-log: #f8f9fa;
+  --arrow-fill: #7d8c9e;
+  --arrow-fill-hover: #66758a;
 }
 
 body {
@@ -434,6 +444,25 @@ body {
   gap: 2px;
 }
 
+/* Ô nhập Relative D/M/S: gõ được bằng bàn phím (giới hạn 0-5 / 0-59 / 0-59 khai báo trong min/max) */
+.step-input {
+  width: 52px;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.05em;
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.45);
+  border-radius: 6px;
+  color: inherit;
+  padding: 2px 4px;
+}
+
+.step-input:focus {
+  outline: 2px solid #3498db;
+  outline-offset: 0;
+  border-color: #3498db;
+}
+
 .step-btn {
   width: 28px;
   height: 28px;
@@ -484,15 +513,18 @@ body {
 }
 
 .arrow-btn {
-  width: 60px;
-  height: 60px;
+  position: relative;
+  width: 100px;    /* 90% của 120px */
+  height: 100px;
+  padding: 0;
   font-size: 24px;
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-panel);
+  /* transparent border keeps the box size identical to the old bordered buttons;
+     .arrow-btn.stop paints it red. No background: the triangle itself is the button. */
+  border: 2px solid transparent;
+  background: transparent;
   cursor: pointer;
-  color: var(--text-main);
-  transition: all 0.3s;
+  color: #ffffff;
+  transition: opacity 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -502,20 +534,59 @@ body {
   touch-action: none;
 }
 
+/* Rounded triangle, same trick as the NINA plugin: a triangle Path filled AND stroked with
+   stroke-linejoin:round so the 3 corners come out rounded. */
+.arrow-shape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.arrow-shape path {
+  /* Màu tam giác theo theme: --arrow-fill / --arrow-fill-hover
+     (light: đậm vừa trên nền trắng; dark: xám slate sáng hơn nền panel) */
+  fill: var(--arrow-fill);
+  stroke: var(--arrow-fill);
+  stroke-width: 26;
+  stroke-linejoin: round;
+  transition: fill 0.15s, stroke 0.15s;
+}
+
+.arrow-btn:hover .arrow-shape path { fill: var(--arrow-fill-hover); stroke: var(--arrow-fill-hover); }
+.arrow-btn:active .arrow-shape path { fill: var(--primary); stroke: var(--primary); }
+
 .arrow-btn:active {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
+  background: transparent;
 }
 
 .arrow-btn.stop {
   background: var(--danger);
   color: white;
-  border-color: var(--danger);
-  width: 80px;
+  /* HÌNH VUÔNG (kế thừa 120x120 từ .arrow-btn) + bo viền */
+  border: 2px solid #ff6b6b;
+  border-radius: 12px;
 }
 
-.arrow-label { font-size: 10px; }
+.arrow-label {
+  position: absolute;
+  z-index: 2;                 /* luôn nằm trên hình tam giác */
+  font-size: 14.4px;          /* 90% của 16px */
+  font-weight: 600;
+  line-height: 1;
+  color: #ffffff;
+  pointer-events: none;
+  /* Tâm chữ = TRỌNG TÂM tam giác (cách đáy h/3) => lệch 10.8% chiều cao so với tâm nút,
+     giống hệt plugin (10.8 px trên viewBox 100 đơn vị). */
+  transform: translate(-50%, -50%);
+}
+
+.arrow-btn.up .arrow-label    { top: 60.8%; left: 50%; }   /* đáy ở dưới  -> lệch xuống */
+.arrow-btn.down .arrow-label  { top: 39.2%; left: 50%; }   /* đáy ở trên   -> lệch lên  */
+.arrow-btn.left .arrow-label  { top: 50%;   left: 60.8%; } /* đáy bên phải -> lệch phải */
+.arrow-btn.right .arrow-label { top: 50%;   left: 39.2%; } /* đáy bên trái -> lệch trái */
 
 .middle-row {
   display: flex;
@@ -960,8 +1031,17 @@ body.system-locked #config-tab label {
   }
 
   .arrow-btn {
-    width: 50px;
-    height: 50px;
+    width: 90px;    /* 90% của 100px */
+    height: 90px;
+  }
+
+  .arrow-btn.stop {
+    width: 67.5px;  /* 90% của 75px */
+    height: 67.5px;
+  }
+
+  .arrow-label {
+    font-size: 12.6px;  /* 90% của 14px */
   }
 
   .control-row {
