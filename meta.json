@@ -210,14 +210,14 @@
     "release_date_utc": "2026-09-15T09:58:28Z"
   },
   "firmware 1.4.0.bin": {
-    "description": "<b>NEW:</b> boot status beep - 1 beep when the network + mDNS are up, 2 beeps if not ready after 30 s | panic core dump saved to flash (new <b>coredump</b> partition) | leaner layout: SPIFFS 1.44 MB -> 384 KB, ~542 KB free in the app slot.<br><b style=\"color:var(--danger);\">REQUIRED:</b> flash this version once over <b>USB serial</b> and tick <b>BOOTLOADER</b> + <b>PARTITIONS</b> together with firmware and spiffs - the partition table changed, so Wi-Fi OTA alone cannot apply it (OTA works normally again afterwards).",
+    "description": "feat: boot beep at startup (1 beep OK, 2 beeps fail) + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
     "type": "firmware",
     "version": "1.4.0",
     "size_bytes": 1279728,
     "release_date_utc": "2026-09-15T15:44:26Z"
   },
   "spiffs 1.4.0.bin": {
-    "description": "<b>NEW:</b> boot status beep - 1 beep when the network + mDNS are up, 2 beeps if not ready after 30 s | panic core dump saved to flash (new <b>coredump</b> partition) | leaner layout: SPIFFS 1.44 MB -> 384 KB, ~542 KB free in the app slot.<br><b style=\"color:var(--danger);\">REQUIRED:</b> flash this version once over <b>USB serial</b> and tick <b>BOOTLOADER</b> + <b>PARTITIONS</b> together with firmware and spiffs - the partition table changed, so Wi-Fi OTA alone cannot apply it (OTA works normally again afterwards).",
+    "description": "feat: boot beep at startup (1 beep OK, 2 beeps fail) + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
     "type": "spiffs",
     "version": "1.4.0",
     "size_bytes": 393216,
