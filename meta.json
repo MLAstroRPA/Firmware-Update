@@ -210,14 +210,14 @@
     "release_date_utc": "2026-09-15T09:58:28Z"
   },
   "firmware 1.4.0.bin": {
-    "description": "feat: boot status beep (1 beep OK / 2 beeps fail) + coredump partition for panic capture; fix: removed the mDNS self-probe that rebuilt mDNS every 10 min; new flash layout: spiffs 1.44MB -> 384KB (app slot free ~542KB)",
+    "description": "<b>NEW:</b> boot status beep - 1 beep when the network + mDNS are up, 2 beeps if not ready after 30 s | panic core dump saved to flash (new <b>coredump</b> partition) | leaner layout: SPIFFS 1.44 MB -> 384 KB, ~542 KB free in the app slot.<br><b style=\"color:var(--danger);\">REQUIRED:</b> flash this version once over <b>USB serial</b> and tick <b>BOOTLOADER</b> + <b>PARTITIONS</b> together with firmware and spiffs - the partition table changed, so Wi-Fi OTA alone cannot apply it (OTA works normally again afterwards).",
     "type": "firmware",
     "version": "1.4.0",
     "size_bytes": 1279728,
     "release_date_utc": "2026-09-15T15:44:26Z"
   },
   "spiffs 1.4.0.bin": {
-    "description": "feat: boot status beep (1 beep OK / 2 beeps fail) + coredump partition for panic capture; fix: removed the mDNS self-probe that rebuilt mDNS every 10 min; new flash layout: spiffs 1.44MB -> 384KB (app slot free ~542KB)",
+    "description": "<b>NEW:</b> boot status beep - 1 beep when the network + mDNS are up, 2 beeps if not ready after 30 s | panic core dump saved to flash (new <b>coredump</b> partition) | leaner layout: SPIFFS 1.44 MB -> 384 KB, ~542 KB free in the app slot.<br><b style=\"color:var(--danger);\">REQUIRED:</b> flash this version once over <b>USB serial</b> and tick <b>BOOTLOADER</b> + <b>PARTITIONS</b> together with firmware and spiffs - the partition table changed, so Wi-Fi OTA alone cannot apply it (OTA works normally again afterwards).",
     "type": "spiffs",
     "version": "1.4.0",
     "size_bytes": 393216,
