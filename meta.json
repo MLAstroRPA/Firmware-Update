@@ -210,14 +210,14 @@
     "release_date_utc": "2026-09-15T09:58:28Z"
   },
   "firmware 1.4.0.bin": {
-    "description": "feat: boot beep at startup (1 beep OK, 2 beeps fail) + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
+    "description": "feat: boot beep at startup + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
     "type": "firmware",
     "version": "1.4.0",
     "size_bytes": 1279728,
     "release_date_utc": "2026-09-15T15:44:26Z"
   },
   "spiffs 1.4.0.bin": {
-    "description": "feat: boot beep at startup (1 beep OK, 2 beeps fail) + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
+    "description": "feat: boot beep at startup + panic core dump saved in flash + leaner layout (SPIFFS 1.44 MB -> 384 KB). This version must be flashed once over <b style=\"color:var(--danger);\">USB serial</b> with <b>BOOTLOADER</b> + <b>PARTITIONS</b> ticked - Wi-Fi OTA alone cannot change the partition table.",
     "type": "spiffs",
     "version": "1.4.0",
     "size_bytes": 393216,
