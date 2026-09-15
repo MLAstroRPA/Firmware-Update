@@ -5,6 +5,26 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ---
 
 
+## [1.3.1] - 2026-09-14
+
+### Fixed — mDNS: no periodic restarts any more, rebuild only when it matters
+
+- **Removed the 10-minute `periodic refresh`.** Every rebuild silences the responder for a few hundred
+  ms (and the ESP has to re-join the multicast group); a query landing in that window makes the client
+  wait for the mDNS retry (~1 s) — perceived as "resolution got slower" after the device has been up
+  for a while. Modem sleep (the original cause of the responder dying silently) is already disabled
+  (`WiFi.setSleep(false)` in `main.cpp`).
+- **Rebuild only when a network event actually changes the DNS record:**
+  - `AP client joined`: only the **first** client (0→1) — a 2nd/3rd/4th client no longer rebuilds mDNS.
+  - `STA got IP`: only when the **IP changed**; a reconnect with the same IP keeps the live responder
+    (Serial log `[WIFI][MDNS] STA IP khong doi -> khong restart`).
+  - `STA disconnected`: unchanged (clears the remembered IP so the next connect always rebuilds).
+
+**Files:** `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `Documentation/Log & Error table.md`
+
+---
+
+
 ## [1.3.0] - 2026-09-12
 
 ### Added — mDNS hostname `MLAstroRPA.local`
