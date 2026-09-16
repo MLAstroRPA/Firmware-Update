@@ -222,5 +222,19 @@
     "version": "1.4.0",
     "size_bytes": 393216,
     "release_date_utc": "2026-09-15T15:44:26Z"
+  },
+  "firmware 1.4.1.bin": {
+    "description": "fix: MLAstroRPA.local no longer stops resolving after a few minutes - the Wi-Fi driver was dropping multicast mDNS queries (unicast still answered), power save is now forced OFF every 60 s. Also fixes the random reboot when a WebSocket client (browser/plugin) disconnects mid-telemetry.",
+    "type": "firmware",
+    "version": "1.4.1",
+    "size_bytes": 1275488,
+    "release_date_utc": "2026-09-16T06:18:57Z"
+  },
+  "spiffs 1.4.1.bin": {
+    "description": "fix: MLAstroRPA.local no longer stops resolving after a few minutes - the Wi-Fi driver was dropping multicast mDNS queries (unicast still answered), power save is now forced OFF every 60 s. Also fixes the random reboot when a WebSocket client (browser/plugin) disconnects mid-telemetry.",
+    "type": "spiffs",
+    "version": "1.4.1",
+    "size_bytes": 393216,
+    "release_date_utc": "2026-09-16T06:18:57Z"
   }
 }

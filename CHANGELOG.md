@@ -5,6 +5,52 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ---
 
 
+## [1.4.1] - 2026-09-16
+
+### Fixed — panic `Stack canary watchpoint triggered (NetworkTask)` when a WS client dropped
+
+- **Nguyên nhân:** `networkTask` broadcast telemetry bằng `ws.textAll(json)`. Khi queue gửi của một
+  client bị đầy (client chậm/chết), `_queueMessage()` của thư viện tự gọi `close()` → huỷ client và gọi
+  callback `wsEvent(WS_EVT_DISCONNECT)` **ngay trong lúc đang broadcast**. Handler đó lại làm việc nặng:
+  `logPrintln(...)` (tạo `String`), `StaticJsonDocument` + `serializeJson`, và **`ws.textAll()` lồng bên
+  trong `ws.textAll()`** ⇒ đường gọi sâu ~30 frame + cấp phát động ở frame sâu nhất ⇒ tràn stack 10 KB
+  của `NetworkTask` ⇒ panic ⇒ `rst:0xc (SW_CPU_RESET)` (kiểu "tự nhiên ESP reboot").
+  Tái hiện 2/2 lần: **22:47 15-09** và **08:04 16-09**, cùng frame `wsEvent` → `String::String` → `realloc`.
+  Phụ: việc gọi `ws.textAll()` lồng nhau còn **sửa list client trong lúc thư viện đang duyệt list**.
+- **Thông báo được HOÃN:** handler `WS_EVT_DISCONNECT` (cả nhánh Web-master và nhánh PC wireless qua
+  `wsReleaseControl`) chỉ **đặt cờ**; `wsFlushDeferredBroadcasts()` gửi `controlReleased` ở tick sau của
+  `networkTask` — ngoài đường broadcast của thư viện. Trạng thái vẫn đổi NGAY (dừng motor, nhả quyền,
+  chọn master kế tiếp), gói tin chỉ tới trễ ≤ 1 vòng loop.
+- `NetworkTask` stack `10000` → `12288` B (biên an toàn cho đường gọi còn sâu của thư viện).
+- `logPrintln` không còn copy `String`: bản lõi nhận `const char*` (gọi bằng literal ⇒ **không cấp phát**),
+  bản `const String&` chỉ lấy `c_str()`.
+
+### Added — mDNS idle refresh (lưới an toàn chống responder "chết âm thầm")
+
+- Responder của ESP-IDF có thể ngừng trả lời truy vấn (tên không resolve) trong khi IP vẫn ping tốt và
+  `g_mdns_started` vẫn true — đã gặp thực tế 16-09 (không có sự kiện mạng nào để dựng lại ⇒ phải reset ESP).
+  1.4.0 đã bỏ "10 phút restart" (self-probe) nên lỗi này lộ ra.
+- Thêm: cứ `MDNS_IDLE_REFRESH_MS` (**6 phút** — đo thực tế 16-09: responder chết trong khoảng 6–7 phút
+  sau boot, nên 10 phút để lọt "cửa sổ chết"; hạ xuống 6 phút) dựng lại responder **một lần**, nhưng
+  **CHỈ khi không có client nào** (`ws.count() == 0` và AP không có station) — không bao giờ ép dựng lại khi đang có người dùng.
+  Dựng lại theo sự kiện mạng (AP client đầu tiên, STA đổi IP, STA ngắt) và retry 5 s khi `begin()` lỗi: giữ nguyên.
+
+### Fixed — `MLAstroRPA.local` ngừng resolve sau vài phút (multicast bị bỏ)
+
+- **Triệu chứng:** sau ~3–6 phút, PC/plugin không resolve được `MLAstroRPA.local` ("could not find host")
+  trong khi `ping 192.168.1.4` vẫn 4–5 ms và **truy vấn unicast tới `192.168.1.4:5353` vẫn được trả lời**
+  ⇒ responder KHÔNG chết, chỉ có gói **multicast** không tới được nữa. Dựng lại mDNS (`MDNS.end()+begin()`)
+  khôi phục được (rejoin nhóm multicast) nhưng rồi lại chết ⇒ lỗi ở tầng WiFi, không phải tầng mDNS.
+- **Sửa (M1):** `ensureWiFiPowerSaveOff()` giờ **ép `esp_wifi_set_ps(WIFI_PS_NONE)` lại mỗi 60 s KHÔNG
+  điều kiện** (`WIFI_PS_FORCE_INTERVAL_MS`), không chỉ sau sự kiện mạng như trước. Lúc boot driver báo
+  `WIFI_PS_MIN_MODEM` (mặc định), ta tắt ngay; modem sleep ngủ giữa beacon nên **bỏ qua gói multicast**.
+- **Kiểm chứng (16-09-2026):** watcher ping `MLAstroRPA.local` mỗi 345 s trong 79 phút → **9/9 lần OK**
+  (trước đó FAIL ở 3/4 phiên trong khoảng 3–6 phút). Kèm công cụ chẩn đoán `.vscode/mdns-unicast-test.ps1`
+  (hỏi unicast `:5353` để phân biệt "responder chết" vs "multicast hỏng").
+
+**Files:** `src/Web/WebControl.cpp`, `src/Web/WebControl.h`, `src/main.cpp`, `src/Serial/SerialControl.cpp`,
+`src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `data/index.html`, `CHANGELOG.md`
+
 ## [1.4.0] - 2026-09-15
 
 ### Added — boot status beep + panic core dump
