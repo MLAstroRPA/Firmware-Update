@@ -241,7 +241,7 @@
     "description": "fix: allow update overwrite same version, restart mDNS every 6 min in any case",
     "type": "firmware",
     "version": "1.5.0",
-    "size_bytes": 1275408,
+    "size_bytes": 1275968,
     "release_date_utc": "2026-09-17T12:31:05Z"
   },
   "spiffs 1.5.0.bin": {
@@ -250,5 +250,19 @@
     "version": "1.5.0",
     "size_bytes": 393216,
     "release_date_utc": "2026-09-17T12:31:05Z"
+  },
+  "firmware 1.6.0.bin": {
+    "description": "feat: optional single web-session mode + Beta UI auto-opens the update modal",
+    "type": "firmware",
+    "version": "1.6.0",
+    "size_bytes": 1275968,
+    "release_date_utc": "2026-09-17T16:34:19Z"
+  },
+  "spiffs 1.6.0.bin": {
+    "description": "feat: optional single web-session mode + Beta UI auto-opens the update modal",
+    "type": "spiffs",
+    "version": "1.6.0",
+    "size_bytes": 393216,
+    "release_date_utc": "2026-09-17T16:34:19Z"
   }
 }

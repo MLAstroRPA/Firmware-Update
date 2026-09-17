@@ -4,6 +4,14 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.6.0] - 2026-09-17
+
+- Added — Web UI / Admin: option to reject a second web client (applies after SAVE & REBOOT); with the option OFF every web client can control, configure and monitor
+
+- Added — Web UI / Beta: `?updates=1` opens the CONFIG tab and the "Available Updates" modal automatically
+
+- Changed — Web UI: logo removed (keeps the SPIFFS image inside its 384 KB partition)
+
 ## [1.5.0] - 2026-09-17
 
 - Added — Web UI / OTA: cho phép cài đè cùng version
