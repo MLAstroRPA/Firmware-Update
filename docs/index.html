@@ -11,7 +11,6 @@
   <header class="header"> 
     <div class="header-content">
       <div class="brand">
-        <img class="brand-logo" src="MLAstro_logo.png" alt="MLAstro logo">
         <div class="brand-text">
           <h1 class="brand-title">MLAstro RPA</h1>
           <p class="brand-subtitle">Robotic Polar Alignment</p>
@@ -706,11 +705,17 @@
                 Show Serial logs
               </label>
             </div>
+            <div class="config-item" style="margin-top: 10px;">
+              <label for="reject-second-webclient" class="checkbox-label" title="OFF (default): nhiều web client cùng lúc, mọi web client đều điều khiển được. ON: chỉ 1 web client, client thứ hai bị từ chối. Cần SAVE ALL &amp; REBOOT để có hiệu lực (nút Apply không áp dụng cờ này).">
+                <input type="checkbox" id="reject-second-webclient" class="checkbox-input">
+                Reject second web client (allow only ONE web session) (Save &amp; Reboot required)
+              </label>
+            </div>
           </div>
           <div class="config-item" style="margin-top: 15px;">
             <label for="swap-az-alt" class="checkbox-label">
               <input type="checkbox" id="swap-az-alt" class="checkbox-input">
-              Swap Az-Alt motor ports (requires reboot)
+              Swap Az-Alt motor ports (Save &amp; Reboot required)
             </label>
           </div>
           <div class="config-item" style="margin-top: 15px;">

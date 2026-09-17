@@ -933,6 +933,10 @@ function updateUI(data) {
         }
       }
     }
+    if (data.admin !== undefined && data.admin.reject_second_webclient !== undefined) {
+      const rj = document.getElementById('reject-second-webclient');
+      if (rj) rj.checked = data.admin.reject_second_webclient;
+    }
     isUpdatingFromWS = false;
   }
 
@@ -1340,6 +1344,10 @@ function collectConfig() {
     },
     align_mode: {
       simultaneous: document.getElementById('align-all-mode-simultaneous') ? document.getElementById('align-all-mode-simultaneous').checked : true
+    },
+    // Cờ admin cần SAVE & REBOOT: chỉ gửi kèm payload khi bấm SAVE (Apply bỏ qua cờ này).
+    admin: {
+      reject_second_webclient: document.getElementById('reject-second-webclient') ? document.getElementById('reject-second-webclient').checked : false
     }
   };
 }
@@ -2144,6 +2152,10 @@ if (enableCommWatchdogCb) enableCommWatchdogCb.addEventListener('change', () => 
   syncCommWatchdogCheckboxes(enableCommWatchdogCb.checked);
 });
 
+// Checkbox admin "Reject second web client": cờ này cần SAVE & REBOOT nên KHÔNG gửi lệnh ngay khi
+// tick — giá trị chỉ được gửi kèm payload lúc bấm SAVE (xem collectConfig -> admin).
+// Nút APPLY không có tác dụng với cờ này (firmware chỉ đọc cờ trong saveConfig).
+
 const clearSerialLogBtn = document.getElementById('clear-serial-log-btn');
 if (clearSerialLogBtn) clearSerialLogBtn.addEventListener('click', () => {
   const container = document.getElementById('serial-log');
@@ -2692,7 +2704,10 @@ function getSelectedLocalParts() {
 }
 
 function getPublicUsbUpdateUrl() {
-  return PUBLIC_USB_UPDATE_URL;
+  // Trang này chạy HTTP (insecure) nên Web Serial bị chặn — nút "Open Beta UI" mở trang Beta HTTPS.
+  // Kèm cờ ?updates=1 để trang Beta tự chạy kiểm tra cập nhật và MỞ SẴN modal "Available Updates"
+  // (trang Beta đọc cờ này trong url lúc load, xem HardwareUpdate/docs/script.js).
+  return PUBLIC_USB_UPDATE_URL + (PUBLIC_USB_UPDATE_URL.indexOf('?') >= 0 ? '&' : '?') + 'updates=1';
 }
 
 function refreshUsbContextWarning() {
@@ -3590,6 +3605,21 @@ window.addEventListener('load', () => {
   const sysInfo = document.getElementById('system-info');
   if (sysInfo) {
     sysInfo.textContent = `Uptime: ${uptime} | FRAM: ${fram}`;
+  }
+
+  // MỞ SẴN tab CONFIG + modal "Available Updates" khi trang được mở kèm cờ ?updates=1 (hoặc #updates).
+  // Trên thiết bị (http://192.168.4.1/...) URL không có cờ này ⇒ KHÔNG ảnh hưởng gì; chỉ trang
+  // Beta UI (HTTPS, mở từ nút "Open Beta UI" của modal update) mới có cờ ⇒ nhảy sang tab CONFIG
+  // (nơi có nút kiểm tra cập nhật), tự kiểm tra và bật luôn modal.
+  // Cùng 1 file script dùng cho cả 2 nơi (data/ -> HardwareUpdate/docs/).
+  const autoOpenUpdates = new URLSearchParams(window.location.search).has('updates')
+    || window.location.hash === '#updates';
+  if (autoOpenUpdates) {
+    // Hoãn nhẹ để các init khác (theme/panel/WS) chạy xong trước khi chuyển tab + hiện modal.
+    setTimeout(() => {
+      switchTab('config');
+      checkAllUpdates();
+    }, 300);
   }
 });
 

@@ -125,18 +125,6 @@ body {
   gap: 12px;
 }
 
-/* Logo tròn ngay TRƯỚC khối nhận diện thương hiệu (title + subtitle + version).
-   `top: 10px` = hạ logo xuống 10px (dùng position thay vì margin để lệch ĐÚNG 10px,
-   vì `.brand` align-items:center sẽ chia đôi ảnh hưởng của margin). */
-.brand-logo {
-  width: 85px;
-  height: 85px;
-  flex: 0 0 auto;
-  object-fit: contain;
-  position: relative;
-  top: 5px;
-}
-
 .brand-text {
   display: flex;
   flex-direction: column;
