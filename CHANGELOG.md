@@ -5,6 +5,16 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ---
 
 
+## [1.5.0] - 2026-09-17
+
+### Added — Web UI / OTA: cho phép cài đè cùng version
+
+### Changed — mDNS: dựng lại định kỳ 6 phút KỂ CẢ khi có client, và im lặng
+
+### Fixed — bớt log rác lúc boot
+
+**Files:** `src/main.cpp`, `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `data/script.js`, `data/index.html`, `Documentation/Log & Error table.md`, `CHANGELOG.md`
+
 ## [1.4.1] - 2026-09-16
 
 ### Fixed — panic `Stack canary watchpoint triggered (NetworkTask)` when a WS client dropped

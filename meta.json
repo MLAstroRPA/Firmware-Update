@@ -227,7 +227,7 @@
     "description": "fix: MLAstroRPA.local no longer stops resolving after a few minutes - the Wi-Fi driver was dropping multicast mDNS queries (unicast still answered), power save is now forced OFF every 60 s. Also fixes the random reboot when a WebSocket client (browser/plugin) disconnects mid-telemetry.",
     "type": "firmware",
     "version": "1.4.1",
-    "size_bytes": 1275488,
+    "size_bytes": 1275552,
     "release_date_utc": "2026-09-16T06:18:57Z"
   },
   "spiffs 1.4.1.bin": {
@@ -236,5 +236,19 @@
     "version": "1.4.1",
     "size_bytes": 393216,
     "release_date_utc": "2026-09-16T06:18:57Z"
+  },
+  "firmware 1.5.0.bin": {
+    "description": "fix: allow update overwrite same version, restart mDNS every 6 min in any case",
+    "type": "firmware",
+    "version": "1.5.0",
+    "size_bytes": 1275408,
+    "release_date_utc": "2026-09-17T12:31:05Z"
+  },
+  "spiffs 1.5.0.bin": {
+    "description": "fix: allow update overwrite same version, restart mDNS every 6 min in any case",
+    "type": "spiffs",
+    "version": "1.5.0",
+    "size_bytes": 393216,
+    "release_date_utc": "2026-09-17T12:31:05Z"
   }
 }

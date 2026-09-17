@@ -1754,6 +1754,16 @@ if (scanWifiBtn) {
 // riêng cho client này → mới hiển thị. Đối xứng với `STAp:?` / `APpa:?` của đường Serial.
 // Khi lưu: để trống ô = giữ nguyên password hiện tại (firmware bỏ qua field rỗng).
 const _passFetchPending = { sta: false, ap: false };
+// Ô mật khẩu để TRỐNG = giữ nguyên pass hiện tại ⇒ hiển thị 8 dấu * (placeholder) thay cho dòng chữ dài.
+const PASS_BLANK_PLACEHOLDER = '********';
+// Icon con mắt: 👁 = đang hiện password; thêm class `is-off` = đang ẩn (gạch chéo).
+const _EYE_ICON = '👁';
+
+function setEyeIcon(btn, visible) {
+  if (!btn) return;
+  btn.textContent = _EYE_ICON;
+  btn.classList.toggle('is-off', !visible);
+}
 
 function requestPassword(which) {
   const input = document.getElementById(which === 'sta' ? 'wifi-pass' : 'ap-pass');
@@ -1761,7 +1771,10 @@ function requestPassword(which) {
   if (!input) return;
 
   _passFetchPending[which] = true;
-  if (btn) btn.textContent = '⏳';
+  if (btn) {
+    btn.textContent = '⏳';
+    btn.classList.remove('is-off');
+  }
   input.placeholder = 'Requesting from device...';
   // keys: "pass" = mật khẩu WiFi (STA); "wifi_ap" = ssid + mật khẩu AP
   sendCommand('getConfig', { keys: [which === 'sta' ? 'pass' : 'wifi_ap'] });
@@ -1773,9 +1786,9 @@ function applyPasswordFetch(data) {
     const btn = document.getElementById(which === 'sta' ? 'wifi-pass-eye' : 'ap-pass-eye');
     if (!input) return;
     input.value = value || '';
-    input.placeholder = 'Leave blank = keep current';
+    input.placeholder = PASS_BLANK_PLACEHOLDER;
     input.type = 'text';                 // hiện ra sau khi nhận được
-    if (btn) btn.textContent = '🙈';
+    setEyeIcon(btn, true);
   };
 
   if (_passFetchPending.sta && data.pass !== undefined) {
@@ -1797,12 +1810,12 @@ function bindPasswordEye(btnId, inputId, which) {
   btn.addEventListener('click', () => {
     if (input.type === 'text') {          // đang hiện ⇒ ẩn đi
       input.type = 'password';
-      btn.textContent = '👁';
+      setEyeIcon(btn, false);
       return;
     }
     if (input.value) {                    // đã tải/đã nhập rồi ⇒ hiện luôn
       input.type = 'text';
-      btn.textContent = '🙈';
+      setEyeIcon(btn, true);
       return;
     }
     requestPassword(which);               // chưa biết ⇒ tải theo yêu cầu
@@ -3203,6 +3216,13 @@ function updateUsbProgressFromState(detail) {
   updateProgressUI(target, getUsbStateLabel(usbFlashPhase));
 }
 
+function startOtaPlan(version, steps) {
+  otaMode = 'ota';
+  otaPlan = { version, steps };
+  otaCurrentStepIndex = -1;
+  startNextPlannedOtaStep();
+}
+
 function startNextPlannedOtaStep() {
   if (!otaPlan || otaMode !== 'ota') return;
   otaCurrentStepIndex += 1;
@@ -3278,22 +3298,39 @@ async function checkAllUpdates() {
             return;
           }
 
-          if (isGroupAlreadyInstalled(selectedGroup)) {
-            showUpdateModalError(`Version ${selectedGroup.version} is already active for all selected packages.`);
-            return;
-          }
-
           const steps = createOtaStepsFromGroup(selectedGroup);
           if (!steps.length) {
             showUpdateModalError('No OTA package was found for the selected version.');
             return;
           }
 
+          // CÙNG VERSION đang chạy: không chặn cứng nữa mà cho phép CÀI ĐÈ (overwrite) sau khi xác nhận
+          // (user yêu cầu 2026-09-17: cần OTA/flash lại đúng version đang có, vd sau khi build lại /
+          // nghi firmware lỗi).
+          if (isGroupAlreadyInstalled(selectedGroup)) {
+            hideModal();
+            showModal(
+              'Reinstall Same Version',
+              `Version <b>${selectedGroup.version}</b> is already active for all selected packages on the device.<br><br>` +
+              'Reinstall (overwrite) the same version anyway?',
+              [
+                {
+                  text: 'Overwrite',
+                  class: 'btn-danger',
+                  closeOnClick: false,
+                  callback: () => {
+                    hideModal();
+                    startOtaPlan(selectedGroup.version, steps);
+                  },
+                },
+                { text: 'Cancel' },
+              ]
+            );
+            return;
+          }
+
           hideModal();
-          otaMode = 'ota';
-          otaPlan = { version: selectedGroup.version, steps };
-          otaCurrentStepIndex = -1;
-          startNextPlannedOtaStep();
+          startOtaPlan(selectedGroup.version, steps);
         },
       },
       { text: 'Cancel' },

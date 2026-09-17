@@ -119,6 +119,30 @@ body {
   margin-bottom: 5px;
 }
 /* Brand styles moved from inline */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Logo tròn ngay TRƯỚC khối nhận diện thương hiệu (title + subtitle + version).
+   `top: 10px` = hạ logo xuống 10px (dùng position thay vì margin để lệch ĐÚNG 10px,
+   vì `.brand` align-items:center sẽ chia đôi ảnh hưởng của margin). */
+.brand-logo {
+  width: 85px;
+  height: 85px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  position: relative;
+  top: 5px;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .brand-title { margin-bottom: 0; line-height: 1; }
 .brand-subtitle { margin: 0; font-size: 0.75rem; font-weight: normal; }
 .cursor-pointer { cursor: pointer; }
@@ -1146,6 +1170,43 @@ body.system-locked #config-tab label {
   text-align: left;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* Ô mật khẩu WiFi/AP: icon con mắt nằm BÊN TRONG input, sát lề phải, cỡ lớn (3x).
+   `is-off` = password đang ẩn (gạch chéo qua con mắt). */
+.pass-field {
+  position: relative;
+}
+
+.pass-field input[type="password"],
+.pass-field input[type="text"] {
+  padding-right: 52px !important; /* chừa chỗ cho icon con mắt bên trong */
+  min-height: 46px;
+}
+
+.pass-eye-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  font-size: 36px; /* 3x cỡ icon cũ (12px) */
+  cursor: pointer;
+  opacity: 0.9;
+  user-select: none;
+}
+
+.pass-eye-btn:hover {
+  opacity: 1;
+}
+
+.pass-eye-btn.is-off {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 .radio-group {
