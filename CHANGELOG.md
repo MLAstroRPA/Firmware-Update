@@ -9,44 +9,7 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — panic `Stack canary watchpoint triggered (NetworkTask)` when a WS client dropped
 
-- **Nguyên nhân:** `networkTask` broadcast telemetry bằng `ws.textAll(json)`. Khi queue gửi của một
-  client bị đầy (client chậm/chết), `_queueMessage()` của thư viện tự gọi `close()` → huỷ client và gọi
-  callback `wsEvent(WS_EVT_DISCONNECT)` **ngay trong lúc đang broadcast**. Handler đó lại làm việc nặng:
-  `logPrintln(...)` (tạo `String`), `StaticJsonDocument` + `serializeJson`, và **`ws.textAll()` lồng bên
-  trong `ws.textAll()`** ⇒ đường gọi sâu ~30 frame + cấp phát động ở frame sâu nhất ⇒ tràn stack 10 KB
-  của `NetworkTask` ⇒ panic ⇒ `rst:0xc (SW_CPU_RESET)` (kiểu "tự nhiên ESP reboot").
-  Tái hiện 2/2 lần: **22:47 15-09** và **08:04 16-09**, cùng frame `wsEvent` → `String::String` → `realloc`.
-  Phụ: việc gọi `ws.textAll()` lồng nhau còn **sửa list client trong lúc thư viện đang duyệt list**.
-- **Thông báo được HOÃN:** handler `WS_EVT_DISCONNECT` (cả nhánh Web-master và nhánh PC wireless qua
-  `wsReleaseControl`) chỉ **đặt cờ**; `wsFlushDeferredBroadcasts()` gửi `controlReleased` ở tick sau của
-  `networkTask` — ngoài đường broadcast của thư viện. Trạng thái vẫn đổi NGAY (dừng motor, nhả quyền,
-  chọn master kế tiếp), gói tin chỉ tới trễ ≤ 1 vòng loop.
-- `NetworkTask` stack `10000` → `12288` B (biên an toàn cho đường gọi còn sâu của thư viện).
-- `logPrintln` không còn copy `String`: bản lõi nhận `const char*` (gọi bằng literal ⇒ **không cấp phát**),
-  bản `const String&` chỉ lấy `c_str()`.
-
-### Added — mDNS idle refresh (lưới an toàn chống responder "chết âm thầm")
-
-- Responder của ESP-IDF có thể ngừng trả lời truy vấn (tên không resolve) trong khi IP vẫn ping tốt và
-  `g_mdns_started` vẫn true — đã gặp thực tế 16-09 (không có sự kiện mạng nào để dựng lại ⇒ phải reset ESP).
-  1.4.0 đã bỏ "10 phút restart" (self-probe) nên lỗi này lộ ra.
-- Thêm: cứ `MDNS_IDLE_REFRESH_MS` (**6 phút** — đo thực tế 16-09: responder chết trong khoảng 6–7 phút
-  sau boot, nên 10 phút để lọt "cửa sổ chết"; hạ xuống 6 phút) dựng lại responder **một lần**, nhưng
-  **CHỈ khi không có client nào** (`ws.count() == 0` và AP không có station) — không bao giờ ép dựng lại khi đang có người dùng.
-  Dựng lại theo sự kiện mạng (AP client đầu tiên, STA đổi IP, STA ngắt) và retry 5 s khi `begin()` lỗi: giữ nguyên.
-
-### Fixed — `MLAstroRPA.local` ngừng resolve sau vài phút (multicast bị bỏ)
-
-- **Triệu chứng:** sau ~3–6 phút, PC/plugin không resolve được `MLAstroRPA.local` ("could not find host")
-  trong khi `ping 192.168.1.4` vẫn 4–5 ms và **truy vấn unicast tới `192.168.1.4:5353` vẫn được trả lời**
-  ⇒ responder KHÔNG chết, chỉ có gói **multicast** không tới được nữa. Dựng lại mDNS (`MDNS.end()+begin()`)
-  khôi phục được (rejoin nhóm multicast) nhưng rồi lại chết ⇒ lỗi ở tầng WiFi, không phải tầng mDNS.
-- **Sửa (M1):** `ensureWiFiPowerSaveOff()` giờ **ép `esp_wifi_set_ps(WIFI_PS_NONE)` lại mỗi 60 s KHÔNG
-  điều kiện** (`WIFI_PS_FORCE_INTERVAL_MS`), không chỉ sau sự kiện mạng như trước. Lúc boot driver báo
-  `WIFI_PS_MIN_MODEM` (mặc định), ta tắt ngay; modem sleep ngủ giữa beacon nên **bỏ qua gói multicast**.
-- **Kiểm chứng (16-09-2026):** watcher ping `MLAstroRPA.local` mỗi 345 s trong 79 phút → **9/9 lần OK**
-  (trước đó FAIL ở 3/4 phiên trong khoảng 3–6 phút). Kèm công cụ chẩn đoán `.vscode/mdns-unicast-test.ps1`
-  (hỏi unicast `:5353` để phân biệt "responder chết" vs "multicast hỏng").
+### Added — mDNS refresh định kỳ (lưới an toàn chống responder "chết âm thầm")
 
 **Files:** `src/Web/WebControl.cpp`, `src/Web/WebControl.h`, `src/main.cpp`, `src/Serial/SerialControl.cpp`,
 `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `data/index.html`, `CHANGELOG.md`
@@ -55,42 +18,9 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Added — boot status beep + panic core dump
 
-- **Boot status beep.** After the boot banner the firmware plays **1 beep** when the network is up
-  (STA connected when an STA SSID is configured; AP-only counts as OK) **and** mDNS is up, or
-  **2 beeps** when one of the two is still missing after 30 s (`BEEP_BOOT_OK` / `BEEP_BOOT_FAIL`,
-  one-shot, the buzzer returns to idle). Gives a hands-free "did it come up?" answer with the device
-  already mounted on the mount. Log: `BOOT AUDIO: 1 beep - STA <ip>, mDNS up (MLAstroRPA.local)` /
-  `BOOT AUDIO: 2 beeps - STA FAILED, mDNS FAILED`.
-- **`coredump` partition (64 KB) written to flash.** The framework was already compiled with
-  `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`, but no partition existed to write to, so a panic logged
-  `No core dump partition found!` and left nothing behind. Panic dumps are now stored at `0x390000`
-  and survive the reboot, so a rare crash in the field can be decoded offline
-  (`py -m esptool read-flash 0x390000 0x10000 core.bin` + `xtensa-esp32-elf-gdb`).
-- **New partition table** `partitions_coredump.csv` (replaces `default_ota.csv`): app slots grow to
-  1,835,008 B each, spiffs shrinks from 1.44 MB to 393,216 B (~1.6x the 244,765 B Web UI payload).
-  Free space per app slot goes from ~0 to **~542 KB** at the current firmware size, which gives the
-  next features room without touching the layout again.
-
 ### Fixed — mDNS: self-probe removed (it rebuilt mDNS every 10 minutes)
 
-- The health-check that 1.3.1 was supposed to have removed was still fired by `ensureMDNSProbe()`:
-  it queried the device's **own** responder (`mdns_query_a("MLAstroRPA.local")`), which never answers
-  its own query in this build, so the probe "failed" twice in a row and the code rebuilt mDNS every
-  10 minutes. Each rebuild silences the responder for a few hundred ms, which clients see as
-  `MLAstroRPA.local` resolution stalling (Serial log: `[WIFI][MDNS] restart (probe failed) -> OK`).
-  `ensureMDNSProbe()`, the `MDNS_PROBE_*` constants and `g_mdns_probe_fails` are gone; mDNS is
-  rebuilt only on real network events (first AP client, STA IP changed, STA disconnected) plus one
-  5 s `startMDNS()` retry at boot.
-- Modem sleep stays disabled (`WiFi.setSleep(false)`), which is the real fix for a silently dying
-  responder — the periodic restart is not needed any more.
-
 ### Changed — flash offsets follow the new partition table
-
-- SPIFFS offset `0x290000` -> **`0x3a0000`**; bootloader and partition table are exported under fixed
-  names (`bootloader.bin`, `partitions.bin`). Combined with the 1.3.1 change (`e8fb9cf` OTA
-  hardening) this bumps the MINOR version.
-- A device still on the old layout must be flashed **once over USB** (bootloader + partitions +
-  firmware + spiffs). Wi-Fi OTA keeps working before and after (partitions are looked up by name).
 
 **Files:** `src/main.cpp`, `src/GPIO/BuzzerControl.cpp`, `src/GPIO/BuzzerControl.h`,
 `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `partitions_coredump.csv`, `platformio.ini`,
@@ -101,17 +31,6 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — mDNS: no periodic restarts any more, rebuild only when it matters
 
-- **Removed the 10-minute `periodic refresh`.** Every rebuild silences the responder for a few hundred
-  ms (and the ESP has to re-join the multicast group); a query landing in that window makes the client
-  wait for the mDNS retry (~1 s) — perceived as "resolution got slower" after the device has been up
-  for a while. Modem sleep (the original cause of the responder dying silently) is already disabled
-  (`WiFi.setSleep(false)` in `main.cpp`).
-- **Rebuild only when a network event actually changes the DNS record:**
-  - `AP client joined`: only the **first** client (0→1) — a 2nd/3rd/4th client no longer rebuilds mDNS.
-  - `STA got IP`: only when the **IP changed**; a reconnect with the same IP keeps the live responder
-    (Serial log `[WIFI][MDNS] STA IP khong doi -> khong restart`).
-  - `STA disconnected`: unchanged (clears the remembered IP so the next connect always rebuilds).
-
 **Files:** `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `Documentation/Log & Error table.md`
 
 ---
@@ -121,35 +40,7 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Added — mDNS hostname `MLAstroRPA.local`
 
-- The firmware now advertises a fixed mDNS hostname **`MLAstroRPA.local`** (`ESPmDNS`, plus the
-  `_http._tcp:80` service) so a PC/plugin can reach the device by name instead of a hard-coded IP.
-  The DHCP hostname for Station mode is set to the same name before `WiFi.begin()`.
-- mDNS is started right after the AP/STA bring-up and **self-retries every 5 s** from the network
-  task if the first `MDNS.begin()` fails, so a slow WiFi start cannot leave the device undiscoverable.
-- Fallback unchanged: connecting by IP (`192.168.4.1` in AP mode) still works when mDNS is blocked.
-
 ### Added — PC (plugin) control over WebSocket (handshake `MLAstroRPA-TC`)
-
-- The plugin/PC can take control over the **same `/ws` endpoint** as the Web UI by sending
-  `{"cmd":"handshake","data":{"key":"MLAstroRPA-TC"}}` as its first frame — the WebSocket
-  equivalent of the serial `[MLAstroRPA-TC]` handshake. Reply is
-  `{"cmd":"handshakeResult","result":true,"transport":"ws","fw_ver":...,"serial_locked":true}`.
-- PC (wireless) control has the **same priority as Serial**: `stopAllMotion(true)`, Web master
-  handshake revoked, and every Web client is notified with the existing `controlTakenBySerial`
-  message (`serial_locked:true`) so the Web UI stays **monitoring** while its controls are locked.
-- **Only one PC session** is allowed: a second PC handshake is refused (`result:false`, socket closed
-  with code `1008`). Exception: same remote IP with a dead previous socket (plugin restart) triggers a
-  takeover instead of a lockout. `keepAlivePeriod(15 s)` releases the slot if a PC socket dies silently.
-- New `{"cmd":"releaseControl"}` (graceful release, mirrors the Serial `Disconnect` command) and a
-  `{"cmd":"controlReleased","serial_locked":false}` broadcast on PC disconnect — the Web UI unlocks
-  and regains control **without a page refresh**.
-- Serial commands are only accepted while the PC owns control **through the serial port**
-  (`pcTransport == PC_SERIAL`), so a USB-serial app cannot inject commands during a wireless session.
-- **Client roles:** a new client is accepted provisionally and must either handshake (PC) or be the
-  only Web client; an extra Web client is rejected after a ~1.5 s grace window with the same
-  `connectionRejected` message as before. Telemetry/log broadcasts are unchanged (all clients), so a
-  locked Web UI keeps updating live data. Web UI lock texts now read *PC (Serial/Wireless) Control is
-  Active* instead of *Serial Control*.
 
 **Files:** `src/main.cpp`, `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `src/Web/WebControl.cpp`,
 `src/Web/WebControl.h`, `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`, `data/script.js`,
@@ -157,144 +48,28 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Changed — log replay + RAM (serial-log queue is now allocated on demand)
 
-- The recent-log replay (12 lines) is now **deferred and skipped for the PC/plugin** client: it is
-  queued at `WS_EVT_CONNECT` and sent ~1 s later only to clients that did **not** handshake with
-  `MLAstroRPA-TC`. Previously every new client got the replay immediately, so the plugin's System log
-  re-displayed the previous session's events the moment it connected.
-- `serialLogQueue` (~19 KB: 32 slots × ~604 B) is **no longer allocated at boot**; `networkTask`
-  creates it only while the Web UI's *serial log* forwarding is enabled and deletes it when disabled
-  (create/delete happen in the same task as the drain loop, so there is no race). While disabled this
-  also removes the per-log 604-byte copy.
-- The replay scratch buffer (`12 × 128 B`) moved from the network-task stack to a `static` buffer,
-  giving `networkTask` ~1.5 KB more stack headroom. Note: total DRAM is unchanged by this (1.5 KB
-  moves from stack to `.bss`, hence "RAM used" in the build report rises by exactly that much);
-  the ~19 KB gain above is heap, taken only when the serial log is switched off.
-
 **Files:** `src/main.cpp`, `src/Web/WebControl.cpp`
 
 ### Added — WebSocket command & alarm channel for PC clients
-
-- New WebSocket command `{"cmd":"stopMove","data":{"axis":"az|alt"}}`: **decelerating** single-axis
-  stop for jog release. `stop`/`forceStop` intentionally keep their hard-stop behaviour (they cancel
-  the far target with `setCurrentPosition()`). The Web UI now uses `stopMove` for jog release
-  (mouse-up/leave, touch-end, arrow key-up).
-- **Speed-aware stop in every jog path:** `AccelStepper::stop()` is a no-op while `_speed == 0`, so a
-  release landing while the axis was stopped left the far target `move(±1e9)` armed and the axis
-  started moving again. All three stop paths now use
-  `if (fabs(speed) > 1.0f) { setAcceleration(decel); stop(); } else { setCurrentPosition(currentPosition()); }`
-  (WS `stopMove`, Serial jog release `MAzL:0`/`MAlU:0`, Serial 500 ms jog watchdog), plus a 2 s
-  WebSocket safety net that force-cancels the target if the axis is still running.
-- The firmware's dedicated error telemetry (`ERROR:Code:value,...`, edge-triggered) is now **also
-  broadcast over WebSocket** as `{"error":"ERROR:..."}` — a plugin/web client connected without a USB
-  cable gets the full driver alarm table and error logs. The WebSocket broadcast is sent **before and
-  independently of the UART TX-buffer gate** (the 250 ms telemetry stream keeps that buffer almost
-  permanently busy) and keeps its own "last sent" marker; the marker is reset right after a successful
-  handshake, so a client that just connected receives the current alarm state immediately.
 
 **Files:** `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`, `src/main.cpp`, `data/script.js`,
 `src/Websocket-protocol.md`
 
 ### Changed — Two-way setting sync (Relative mode, speed level, config)
 
-- `broadcastRelativeState()` publishes `{"relative":{"mode":…,"d":…,"m":…,"s":…}}` to **every**
-  client and is called at all four places that change that state: WS `saveConfig`, WS `applyConfig`,
-  Serial `JoRe` and Serial `ReDe`/`ReAM`/`ReAS`. The Web UI updates its Jog/Relative toggle
-  immediately (no F5) and the PC plugin reads the value back, so a PC-driven change can no longer
-  leave the Web UI showing *Jog*; the echo loop is prevented by the Web UI's `isUpdatingFromWS` flag.
-- `speedLevel` is broadcast as `{"speedLevel":N}` the moment it changes (WS `speedLevel`, Serial `SLvl`),
-  so the active speed button follows along without APPLY.
-- The `configSaved` ack carries the caller's `origin` (`data["origin"] | "webSave"`), so a PC plugin
-  can tag its own writes (`origin:"pcPlugin"`) and the Web frontend does not mistake them for the ack
-  of its *SAVE ALL & REBOOT* flow.
-
 **Files:** `src/Web/WebControl.cpp`, `src/Web/WebControl.h`, `src/Serial/SerialControl.cpp`
 
 ### Changed — Identical logs on every control path (Serial / Web / PC-over-WebSocket)
-
-- Every action leaves the **same log line** whichever transport performed it. Serial gained the lines
-  it was missing: `Set Home: Position reset to 0` (`SetH`), `Home status reset to false` (`RstH`),
-  `Ignored ReturnHome: Not homed yet`, `Ignored Align: Not homed yet`,
-  `SOFT LIMIT: Align command refused - Az/Alt target … out of range […]`,
-  `Align AZ/ALT: Escaping Hard Limit`, `ERROR: Hardlimit reached! Movement blocked.`
-- Refusals and limit events are logged **once per event** instead of once per repeated command: the jog
-  guard logs only the first refusal of a press (the client repeats the command every 250 ms while the
-  button is held), and that line is worded `AZ/ALT jog refused (already at soft limit)` — distinct from
-  the guard's `AZ/ALT Soft limit reached`, which means the axis was just decelerated to a stop at the edge.
-- **Soft-limit refusals of auto / relative / align commands** (previously silent on both paths) now log
-  `SOFT LIMIT: relative move refused - target … out of range […]` and
-  `SOFT LIMIT: Align command refused - Az/Alt target … out of range […]`, so a refusal is visible in
-  the Web log and in the plugin System log alike.
-- Lines that stay transport-specific by design: `Serial: AZ/ALT Jog Timeout. Stopping.` (Serial 500 ms
-  jog watchdog), `… jog release: still running -> FORCE stop (safety net).` (WebSocket only), the
-  WebSocket handshake/role/PC-disconnect lines, `Factory Zero set at current position…`
-  (`setFactoryZero` is WS-only) and `ApplyConf: Settings applied from Serial.`
 
 **Files:** `src/Serial/SerialControl.cpp`, `src/Web/WebControl.cpp`
 
 ### Changed — Jog & soft limits: refuse only at the limit, warn on every refusal
 
-- The continuous-jog guard refuses **only when the axis is already at/past the limit** in the jogging
-  direction. Jogging towards the limit runs and decelerates normally; the global guard in `loop()`
-  still stops the axis exactly at the edge (hard-cancel), so a far target can never push it past.
-- Jogging while parked at the limit logs `AZ Soft limit reached` / `ALT Soft limit reached` like
-  reaching the edge while moving, rate-limited to one line per 800 ms so holding the button cannot
-  flood the log.
-- **New `CmdRf` bitfield in ERROR telemetry** — one bit per refused command type
-  (`REL_AZ=0x01, REL_ALT=0x02, ALN_AZ=0x04, ALN_ALT=0x08, JOG_AZ=0x10, JOG_ALT=0x20, ALN_OVS=0x40`).
-  A bit is set the moment the command is refused and auto-clears 1.5 s after the last refusal ("the
-  command is no longer being issued"); it is cleared when the PC releases control. Because it is
-  carried as a **WARNING** on every ERROR telemetry frame, it never locks the system.
-- Bits are raised at every refusal point — relative move (both axes), align target (both axes), align
-  overshoot leg and jog at the limit (both axes) — on **both** transports, so a plugin can decode them
-  into individual alarm rows. Jog bits are raised only while `AzSL`/`AlSL` are off, so a soft-limit
-  stop produces exactly **one** alarm instead of two.
-
 ### Changed — One config JSON for every client (connect snapshot + config pushes)
-
-- The whole configuration (`wifi_ap` + STA info + `align_mode` + `limits` + `motor` + `serial` +
-  `backlash` + `relative` + `align`) is produced by a **single** `fillConfigSections()`, shared by the
-  connect snapshot and by the config push. Adding a setting now means touching one place only, and the
-  Web UI and the PC plugin can never disagree (previously two hand-written JSON blocks existed in
-  parallel and the push frame was missing `align_mode`/`wifi_ap` altogether).
-- `wifi_ap.mac` and `sta_mac` are included so a plugin can display `APma`/`STAm` without a Serial link.
-- `broadcastConfig()` (previously only used by the Serial `ApplyConf` path) now also runs for the
-  WebSocket `saveConfig` and `applyConfig` commands, **before** the `configSaved`/`configApplied` ack:
-  a client that is already connected refreshes its settings instead of keeping the copy it read at
-  connect time.
 
 **Files:** `src/Web/WebControl.cpp`, `src/Websocket-protocol.md`
 
 ### Changed — WiFi STA failure diagnostics + passwords are no longer broadcast
-
-- **The failure line now carries the diagnosis:**
-  `STA disconnected/failed - keep AP alive (reason: 201 - NO_AP_FOUND …) | SSID:"Alita" pass:"…" (9 chars) | attempt: 3 | status: 6 | AP: 192.168.4.1`
-  — reason code + meaning, the SSID/password actually being used (catches a wrong or half-written
-  credential), retry count, driver status and whether the AP is still alive. A successful join logs
-  BSSID/channel/RSSI as well. The reason is reported by a dedicated WiFi event handler which is
-  registered *before* the main one, because the framework dispatches callbacks in registration order.
-  The retry policy itself is unchanged (`MAX_WIFI_RETRY = 5` attempts, one per second).
-- **WiFi passwords are no longer broadcast.** `wifi_ap.pass` and the STA `pass` were part of the
-  connect snapshot *and* of every `config_pushed` frame — and those frames go to **all** clients and
-  are re-sent on every configuration change. A client now asks on demand with the new `getConfig`
-  command and receives a `configRead` reply addressed **only to the requester**, mirroring the serial
-  `STAp:?` / `APpa:?` query. The Web UI and the plugin only fetch the password when the user presses
-  the eye button.
-- **An empty network field can no longer erase a stored value.** `STAs` / `STAp` / `APss` / `APpa` /
-  `APip` and the `wifi` / `wifi_ap` sections of `saveConfig` now treat an empty string as *"keep the
-  current value"* (`ConfigManager::saveWiFi/saveAP` skip empty fields). A blank password box (page just
-  loaded, or a WPF binding writing an intermediate `""`) used to wipe the password in FRAM, after which
-  every connection failed with reason 15 and nothing could recover it.
-- **Boot-time warning** when the stored credentials cannot work:
-  `WARNING: STA password is EMPTY -> WiFi connect will always fail (reason 15). …`, plus warnings for an
-  empty AP SSID / open AP.
-- **AP hardening + client visibility.** `startAP()` now validates the stored `ap_ip` / `ap_subnet` (must
-  be a private LAN address and a contiguous mask ≥ /16) and falls back to `192.168.4.1` / `255.255.255.0`.
-  A nonsense value such as `1.3.0.1` — what the version-pump script produced when it rewrote the AP IP
-  placeholder into the release number — let the AP "start" while handing out unusable addressing, so
-  clients could join the AP but never reach the Web UI (symptom: "DHCP looks disabled"). The AP is now
-  created with an explicit `max_connection = 4` (Arduino-ESP32 allows 1–4; the old call relied on the
-  core default) and logs its limit plus every join/leave:
-  `[WIFI][AP] max clients: 4 | clients now: n` and `[WIFI][AP] client joined -> n/4`.
 
 **Files:** `src/Wifi/WifiConfig.cpp`, `src/Wifi/WifiConfig.h`, `src/Web/WebControl.cpp`,
 `src/Serial/SerialControl.cpp`, `src/FRAM/configmanager.cpp`, `src/main.cpp`, `data/index.html`,
@@ -306,15 +81,7 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — Backlash Compensation Now Really Moves the Axis on Relative (Step) Moves
 
-- `applyBacklashCompensation()` only shifts the origin (`setCurrentPosition`) and commands **no motion by itself**. That is correct for **absolute** targets (`moveTo`: Align / Return-Home / auto-center) because the shifted origin enlarges `distanceToGo`, so the motor really travels the extra slack. For **relative** targets (`move(steps)`) the target is `currentPos + steps`, so `distanceToGo` stayed exactly `steps` — the motor travelled no extra steps and the mechanical slack swallowed the whole move (13' backlash + a 5" step = axis did not move at all) even though the log printed `(Backlash applied)`.
-- New `applyBacklashCompensationRelative(stepper, lastDir, newDir, backlashSteps, long &steps)` (`Steper.cpp` / `Steper.h`) keeps the origin shift **and adds the slack to the commanded distance** (`steps += newDir * backlashSteps`, skipped when `steps == 0`), so the axis really moves the requested angle while the position counter still ends on the true axis position.
-- Applied to **both** relative paths: Web `moveRelative` and the Serial relative branch (`JoRe:1` + `MAzL/MAzR/MAlU/MAlD`). Continuous jog (`move(±1e9)`) and absolute moves are unchanged.
-
 ### Changed — Relative-Move Logs Now Report the Backlash Compensation (Web + Serial)
-
-- Web `moveRelative` discarded the compensation result and never logged it — a relative step now prints `RELATIVE MOVE: Axis=…, Angle=… deg, Steps=<real travel incl. slack> (Backlash applied | N step | X.XXX')`, the same format used by jog / Align / Return-Home.
-- Serial relative moves no longer share the `MANUAL MOVING` line: they log the same `RELATIVE MOVE: …` line as the Web (still delivered through the WebSocket system log), so a relative step is distinguishable from a continuous jog.
-- Web relative handler now clamps the speed level to 1–5 (as the jog handler does) to avoid an out-of-range index / `setMaxSpeed(0)`.
 
 **Files:** `src/Steper/Steper.cpp`, `src/Steper/Steper.h`, `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`, `src/main.cpp`, `data/index.html`
 
@@ -323,12 +90,6 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ## [1.2.71] - 2026-09-08
 
 ### Fixed — Open-Load Detection Now Reads the Driver's OLA/OLB Flags (SG_RESULT Dropped)
-
-- StallGuard `SG_RESULT` measures **mechanical load**, not wiring health — under StealthChop / during acceleration it is meaningless, so a healthy connected motor was frequently misreported as *"Motor not connected / no back-EMF"*.
-- Open-load is now detected from the TMC2209 driver's own hardware flags **`OLA`/`OLB`** (`DRV_STATUS` bits 6/7): the driver measures coil current and sets the bit for any coil that cannot conduct (motor unplugged / broken wire). The bits come from the `DRV_STATUS` value already read — no extra UART traffic.
-- Trusted only when the UART read is clean (`drvOk=true`) inside the running window (after the settle period); a failed read while running is still ignored.
-- Debounce unchanged (`OPEN_LOAD_CONSECUTIVE_CHECKS = 3`, ~0.9 s) so transient noise cannot trigger a false error; the confirmed log line is now `ERROR <axis>: Open load! (OLA=x OLB=y)`.
-- While open-load is suspected/confirmed, hard-limit detection stays suppressed on Core 1 — an unplugged motor never looks like a physical hard limit (no false reverse-run).
 
 **Files:** `src/Steper/Steper.cpp`
 
@@ -344,36 +105,21 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — Web APPLY / SAVE & REBOOT Did Nothing (Large WebSocket Messages Lost)
 
-- ESPAsyncWebServer delivered one browser WS frame across multiple `WS_EVT_DATA` callbacks when its payload spanned several TCP packets (a full config payload is ~1.3 KB and was almost always split). `wsEvent` parsed each fragment on its own → `WS JSON parse error: IncompleteInput / InvalidInput` → `saveConfig`/`applyConfig` never ran (small jog/stop commands fit one packet, so they still worked).
-- Fix: `wsEvent` now reassembles WS text fragments (`info->index` / `info->len` / `info->final`, including continuation frames) and dispatches the command only when the whole message has arrived. Incoming JSON is parsed into a heap-backed `DynamicJsonDocument(8192)`; parse failures are logged with the exact error code + message length.
-
 **Files:** `src/Web/WebControl.cpp`
 
 ### Changed — Web SAVE & REBOOT Confirms the Save Before Rebooting
-
-- SAVE ALL & REBOOT is now a two-step handshake: the browser sends `saveConfig` with `no_reboot=true`; the firmware writes FRAM (including WiFi/AP) and replies `configSaved` tagged `origin=webSave` **without auto-rebooting**; only then does the browser send `reboot` and reload immediately (no fake countdown).
-- APPLY no longer shows an optimistic "applied" toast — it waits for the real `configApplied` ack and warns if the device never confirms (locked by Serial / payload error).
-- A `configSaved` from the Serial plugin (no `origin=webSave`) no longer triggers a web reboot.
-- The manual REBOOT button still sends `reboot` directly.
 
 **Files:** `data/script.js`, `src/Web/WebControl.cpp`
 
 ### Changed — Serial `Save&Reboot` No Longer Auto-Reboots
 
-- `Save&Reboot:1` now only writes all settings to FRAM, sends the independent notification line `All Setting Saved`, and replies `ok` — it no longer prints `REBOOTING` or schedules a 5 s auto-reboot. The PC/plugin is responsible for the actual reboot (e.g. reset the ESP32 via the serial EN pin / DTR-RTS) after it receives `All Setting Saved`.
-- `ApplyConf` keeps its original behavior (persist + apply, plain `ok`, no extra notification).
-
 **Files:** `src/Serial/SerialControl.cpp`, `src/Serial-protocol.md`
 
 ### Changed — Backlash Logs Now Show Compensated Steps and Arc-Minutes
 
-- Every `(Backlash applied)` log line now reports the amount compensated, e.g. `(Backlash applied | 8333 step | 5.000')` (arc-minutes = `steps / stepsPerDegree × 60`), on Web jog / Align / Return-to-Home **and** the equivalent Serial jog / Align paths.
-
 **Files:** `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`, `src/main.cpp`
 
 ### Changed — Web UI Fully Read-Only While Serial Holds Control
-
-- Besides the movement buttons, the UI now also locks the editable fields when the Serial (PC) master has the handshake: text/number/password inputs, `textarea`, `select`, and every checkbox/radio in the **CONFIG** tab are disabled/dimmed (`pointer-events:none` + `readonly`), preventing accidental edits that could not be sent anyway.
 
 **Files:** `data/style.css`, `data/script.js`
 
@@ -383,97 +129,49 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Changed — Faster & More Reliable Open-Load (Motor-Not-Connected) Detection
 
-- The driver sampling interval in `checkAndLogDriverErrors` was reduced from 500 ms to **100 ms** so a missing motor / driver fault is detected much sooner.
-- Open-load debounce reduced: confirmed after **3** consecutive low-`SG_RESULT` samples (was 4 → ~2 s). Combined with the faster sampling, detection now completes well under 1 s after the settle window.
-- The post-start settle window (`DRIVER_OPENLOAD_SETTLE_MS`, during which low SG is ignored while the axis accelerates) was shortened from 800 ms to **300 ms**.
-
 **Files:** `src/Steper/Steper.cpp`, `src/Steper/Steper.h`
 
 ### Changed — Driver Error Handling (Removes False "Not Connected" / False Open-Load)
-
-- While a motor is **running**, a failed UART read (`DRV_STATUS`/`SG_RESULT` = `0`/`0xFFFFFFFF`) is **no longer** treated as "driver not responding" (bit `0x01`) — motor-current noise makes UART reads unreliable during motion, so the failed read is simply ignored. This eliminates false `AzNC`/`AlNC` errors on a healthy axis.
-- Open-load detection now keys on **clean UART reads**: only when a read succeeds (`drvOk=true`) *and* `SG_RESULT < 5` (with the `0x3FF` read-error value excluded) is a sample counted as open-load suspect. The old speed-gate was removed because it missed a detached motor running fast.
-- When UART reads fail while running (connected motor turning), the low-SG counter is **not** accumulated and the "awaiting confirmation" state that suppresses hard-limit detection is kept, so a normal motor is never misread as a hard limit (no reverse-run).
-- Boot window: **"Driver not connected at startup"** is now debounced — raised only after **3** consecutive failed reads, and logged **once** instead of repeating every sample.
-- A new run resets the failed-read counter (`badReadCount`) so stale counts from the boot window are not carried into the run.
-- `checkDriverPreflight` now **retries `DRV_STATUS` up to 3 times** (20 ms apart) before concluding "driver not responding", avoiding a false system lock (`AzNC`/`AlNC`) from a single transient UART failure.
 
 **Files:** `src/Steper/Steper.cpp`
 
 ### Added — Web UI Resets Page Scroll on Tab Switch
 
-- Switching tabs now scrolls the page back to the top of the newly selected tab (previously the page kept its scroll position).
-
 **Files:** `data/script.js`
- 
+
 ---
 
 ## [1.2.66] - 2026-08-28
 
 ### Changed — Serial Handshake Takes Priority Over Web
 
-- Serial now always wins the handshake. When the Web UI already holds control and Serial sends `[MLAstroRPA-TC]`, the firmware **immediately releases the Web handshake** (`webHasControl=false`, `webMasterClientId=0`), cancels Web workflows + stops motors, and notifies the Web client with `{"cmd":"controlTakenBySerial","serial_locked":true,...}` so it switches to monitor-only.
-- The Web UI only re-handshakes on **refresh** (once Serial releases the handshake). While Serial holds control, a connected (or newly connecting) Web client is locked to **read-only monitoring** — no control commands accepted.
-- Previously Serial was refused (`error: System is busy. Web client is connected.`) when Web held control.
-
 **Files:** `src/main.cpp`, `data/script.js`
 
 ### Fixed — Serial Handshake Dropped When Communication Watchdog Disabled
-
-- When **Enable Communication Watchdog** was unchecked, the firmware still silently freed the Serial handshake after `SERIAL_DISCONNECT_TIMEOUT_MS` (10 s) without a `?` poll.
-- Cause: the heartbeat timestamp (`lastSerialHeartbeatQueryTime`) was refreshed **only** by `?` polls — any other received command (jog, align, config, …) did not count as activity, so an active command-only session looked "disconnected" and was dropped. After the drop, every subsequent command was answered with `error: Not connected. Send [MLAstroRPA-TC] to take control.`
-- Fix:
-  - **Any** received serial command now refreshes the heartbeat while the Serial session holds control (commands no longer look like a dead link).
-  - **Watchdog OFF now never releases the handshake**, even after long silence — the handshake is held until the device is rebooted (the user reboots if neither side can connect). The 10 s `SERIAL_DISCONNECT_TIMEOUT_MS` release path was removed (constant deleted).
-  - **Watchdog ON** still E-STOPs and releases control after `SERIAL_HEARTBEAT_TIMEOUT_MS` (1.2 s) of no traffic.
 
 **Files:** `src/main.cpp`, `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`
 
 ### Added — Serial `Disconnect` Command (Graceful Handshake Release)
 
-- New firmware command `Disconnect\n`: stops motors smoothly and releases the Serial control handshake, returning the handshake to the **free** state without needing a reboot.
-- The NINA plugin now sends `Disconnect\n` best-effort right before the port is closed in `Disconnect()` (covers the Connect/Disconnect button and every disconnect path where the port is still open).
-- Essential when **Enable Communication Watchdog is disabled**, because the firmware then never auto-releases the handshake.
-
 **Files:** `src/Serial/SerialControl.cpp`, `Services/SerialConnectionService.cs`, `src/Serial-protocol.md`
 
 ### Added — Independent Error Telemetry over Serial (`ERROR:` line)
-
-- Firmware now reports **all** error/warning codes in one dedicated telemetry line: `ERROR:Sys,AzNC,AlNC,AzOT,AlOT,AzPW,AlPW,AzSA,AzSB,AlSA,AlSB,AzOL,AlOL,AzHL,AlHL,AzSL,AlSL,Esc`.
-- Each code is `0` = OK, `1` = WARNING, `2` = ERROR; all 18 codes are always present (never truncated).
-- Sent **only when the state changes** (edge-triggered) — independent of the `?` polling — and **only while the Serial session holds control** (never when the Web controls). The line waits for free TX space so it never clips a telemetry response.
-- On a successful handshake the current error state is pushed **immediately** after `ok,firmware,SN:...` (`resetErrorTelemetrySent()`).
-- Log keyword `CRITICAL` renamed to `ERROR`.
 
 **Files:** `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`, `src/main.cpp`
 
 ### Added — Post-Start Driver Connectivity Check + System Lock
 
-- When a jog/align command starts an axis, the driver is checked **right after the move is issued** (not before, not on the periodic scan): `DRV_STATUS` read failure → **Driver Not Responding**; over-temperature / short-to-ground → **Driver Fault**.
-- On failure the axis is stopped immediately, `hasDriverError = true` → Core 1 emergency-stops + repeats the ERROR beep/status LED, the system status becomes `ERROR`, and the ERROR telemetry (`AzNC`/`AlNC`/OT/SA/SB) is raised. Recover via **Reset Error** (`ReER:1` / Web button).
-- While locked, movement commands are answered `error: System Locked`; the Web UI shows a **WARNING** log line and disables the movement controls.
-
 **Files:** `src/Serial/SerialControl.cpp`, `src/Steper/Steper.cpp`, `src/Steper/Steper.h`, `src/Web/WebControl.cpp`, `src/main.cpp`
 
 ### Changed — Main Telemetry Cleaned Up (protocol-accurate)
-
-- Removed the test diagnostic fields `AzOL`/`AlOL`/`AzSG`/`AlSG` (and their periodic `DRV_STATUS`/`SG_RESULT` reads) from the main `<...>` telemetry — they reported error-like values that were not part of the protocol.
-- Error reporting now lives exclusively in the dedicated `ERROR:` line; the main telemetry is also lighter (no periodic driver UART reads).
 
 **Files:** `src/Serial/SerialControl.cpp`
 
 ### Added — Web System Log: replay, dedup and Reset cleanup
 
-- On WebSocket connect the recent system log is replayed so boot-time errors are visible after a page refresh; repeated identical messages are deduplicated; transient noise lines (client disconnect, reset notices) are filtered out.
-- **Reset Error** clears the recent-log buffer so stale errors are not replayed after a reset.
-- The "System is locked by PC (Serial Control is Active)" message is now logged as **WARNING** (orange).
-- **SystemLog parity for Serial (UART) control**: the serial command path now logs the same motion start/stop events as the Web UI — `MANUAL MOVING`, `Command: Return to Home received`, `ALIGN STARTED`, `STOPPED`/`FORCED STOP` cancellation — so the Web System Log shows a consistent "started … completed" story no matter which interface started the motion.
-
 **Files:** `src/Web/WebControl.cpp`, `src/main.cpp`, `src/Serial/SerialControl.cpp`, `data/script.js`
 
 ### Added — Web "Enable Communication Watchdog" quick toggle
-
-- New checkbox in the **CONTROL** tab Serial Log header (before Show RX), behaving exactly like the checkbox in Admin Config: synced 2-way and applied + persisted immediately via the new `setCommWatchdog` WebSocket command.
 
 **Files:** `data/index.html`, `data/script.js`, `src/Web/WebControl.cpp`
 
@@ -483,48 +181,21 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — Alignment Values Not Updating While Running (Telemetry Cache)
 
-- The **Alignment** tab values (Az/Alt error set via `AzED`/`AzEM`/`AzES`/`AzDi`/`AlED`/`AlEM`/`AlES`/`AlDi`) were still echoing **old telemetry** after changing values and starting a new run.
-- Cause: the telemetry segment `s_segA` is only rebuilt when the motors stop; values set while idle were cached and the stale copy was re-sent during the next align.
-- Fix: a `telemetryCacheDirty` flag is set on every Az/Alt error/direction command and forces the cache to rebuild immediately — even while motors are running — then clears itself.
-
 **Files:** `src/Serial/SerialControl.cpp`
 
 ### Added — Open-Load / Motor-Not-Connected Detection (StallGuard Back-EMF)
-
-- Firmware now reports an ERROR when a motor is **not connected / no back-EMF** while the axis is running (open circuit).
-- The TMC2209 **OLA/OLB** bits are **not reliable** on this hardware, so detection uses **StallGuard `SG_RESULT`** (back-EMF): when the axis is running and `SG_RESULT < 5` for **4 consecutive checks (~2 s)**, after an 800 ms settle window, → `CRITICAL: Motor not connected / no back-EMF!` → `hasDriverError` → motors stop + ERROR beep. The longer debounce prevents false open-load from transient SG pulses while the motor drives a gearbox.
-- Open-load detection uses **only `SG_RESULT`** (back-EMF); DIAG is not used (it can assert falsely during acceleration/gearbox operation). The open-load telemetry bit (`AzOL`/`AlOL`) and ERROR/WARNING logs are only emitted **after confirmation** — never during the checking/debounce phase — so the Alarm table cannot show an error while the motor is still running.
-- Works in **both SpreadCycle and StealthChop**.
-- New telemetry diagnostics: **`AzOL` / `AlOL`** (0=ok, 1=open A, 2=open B, 3=both, 9=driver not responding) and **`AzSG` / `AlSG`** (StallGuard value), refreshed every 1000 ms.
 
 **Files:** `src/Steper/Steper.cpp`, `src/Serial/SerialControl.cpp`, `src/Steper/Steper.h`
 
 ### Changed — Driver Reads Gated to Boot + Open-Load Window (fixes false "Driver communication lost")
 
-- While a motor is **running**, `DRV_STATUS` UART reads are blocked/fail (return `0`) — this caused **false "Driver communication lost"** errors on a healthy axis.
-- Drivers are now only read:
-  1. During the **boot window** (`DRIVER_BOOT_CHECK_MS = 5000 ms`, motors idle) → 3 consecutive bad reads → `CRITICAL: Driver not connected at startup!`
-  2. Within the **open-load window** (`DRIVER_OPENLOAD_WINDOW_MS = 6000 ms` right after an axis starts running, with an 800 ms settle period) → `SG_RESULT` used for no-motor detection; `DRV_STATUS` read failures are **ignored** while running.
-- After the window, reading stops until the axis stops — removing UART pressure during motion and eliminating the false communication-loss error.
-
 **Files:** `src/Steper/Steper.h`, `src/Steper/Steper.cpp`
 
 ### Fixed — Open-Load No Longer Misreported as Hard Limit (no reverse-run)
 
-- When the motor is not connected, `SG_RESULT ≈ 0 < SGTHRS` makes the TMC2209 **DIAG pin assert** → Core 1's hard-limit protection misread it as a physical hard limit → entered **Escape mode (ran the motor in reverse)** + reported `CRITICAL: AZ/ALT Hardlimit!`.
-- **DIAG is now detected on Core 0** (`checkAndLogDriverErrors`) via direct GPIO reads (no UART, no glitch) and combined with `SG_RESULT`.
-- Shared `azOpenLoadActive` / `altOpenLoadActive` flags coordinate both cores:
-  - Core 1 sets the flag when an axis starts running (pending motor check).
-  - Core 0 sets it true when open-load is suspected, false when the motor is confirmed.
-  - When the flag is active, Core 1 **clears all hard-limit flags** (`stall_start`, `escaping`, `blocked_dir`) and **skips DIAG hard-limit detection**.
-- Net effect: an axis without a motor reports **open-load** (never a hard limit, never reverse-runs); a real hard limit with a connected motor still works normally.
-
 **Files:** `src/Steper/Steper.cpp`, `src/Steper/Steper.h`, `src/main.cpp`
 
 ### Changed — Hard Limits UI Reorganized under Admin Config
-
-- The **Hard Limits (Sensorless)** panel was moved from its own top-level panel into the **Admin Config** section as a child block, placed directly under **Sensorless Auto Tuning** and above **Travel Calibration**.
-- All input IDs (`az-sg-*`, `alt-sg-*`, `az-tcool-*`, `alt-tcool-*`, `stall-time`, `escape-rotations`, `enable-hardlimit`) are unchanged, so the existing JS keeps working.
 
 **Files:** `data/index.html`
 
@@ -534,19 +205,9 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — 3-Beep ERROR Alert for Hardlimit & Motor Error
 
-- **Hardlimit** (StallGuard tripped) and **Motor/Driver Error** now trigger `BEEP_ERROR` (**3 beeps**, repeated every 5 s while the error persists) — previously the `triggerBeep(BEEP_ERROR)` calls were **dead code** after an unconditional `return`, so no alert sounded.
-- Buzzer/status-LED is silenced immediately (`triggerBeep(BEEP_IDLE)`) when the error is reset — both via the Web UI **Reset Error** button and the Serial `ReER:1` command.
-
 **Files:** `src/main.cpp`, `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`
 
 ### Added — Serial RESET ERROR Command (`ReER:1`)
-
-- New serial command `ReER:1` clears the driver error state and returns the system to `READY`, behaving exactly like the **Reset Error** button in the Web UI System Log.
-- Stops both motors (inside the stepper critical section), sets `hasDriverError = false`, and replies `ok`.
-- **No TX echo** — the Serial Log stays clean (only `ok` is replied over Serial); the message `System Error Reset by User.` is written to the **web System Log** in orange (same as the Web UI Reset Error button).
-- `ReER:0` is ignored (button release event), consistent with other UI-mapped commands.
-- The command is **not** gated by `error: System Locked`, so it can always recover the system from an error state.
-- Documented in `src/Serial-protocol.md` under **System & Stop Commands**.
 
 **Files:** `src/Serial/SerialControl.cpp`, `src/Serial-protocol.md`
 
@@ -556,111 +217,53 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Added — Alt P.A Overshoot Direction Checkboxes
 
-- Two new checkboxes **Move up overshoot** and **Move down overshoot**, nested under **Enable Alt P.A Overshoot on firmware**.
-- Persisted to FRAM (marker `0xAB`); applied per-direction in the Alt-axis two-leg overshoot routine.
-- The master **Enable Alt P.A Overshoot** switch still gates both directions. **Move down overshoot** defaults ON to preserve prior behavior.
-- Serial: new `OvUp:X` / `OvDn:X` set commands and `OvUp` / `OvDn` telemetry fields.
-
 **Files:** `src/FRAM/ConfigManager.h`, `src/main.cpp`, `src/Serial/SerialControl.cpp`, `src/Web/WebControl.cpp`, `data/index.html`, `data/script.js`
 
 ### Changed — Backlash & P.A Overshoot UI
-
-- Panel renamed from **Backlash & Overshoot** to **Backlash & P.A Overshoot**.
-- Checkbox renamed to **Enable Alt P.A Overshoot on firmware**.
-- **Az/Alt backlash** inputs and the overshoot sub-options are indented under their parent checkboxes for clearer hierarchy.
 
 **Files:** `data/index.html`
 
 ### Fixed — Intermittent FRAM Save (SAVE ALL & REBOOT)
 
-- `saveConfig` now reads FRAM **once** and writes **once**, instead of ~7 separate read-modify-write operations that could race with the Core 0 save queue and lose config.
-- Save queue re-checks `configSaveInProgress` after reading, before writing, to avoid overwriting a fresh config with a stale copy.
-
 **Files:** `src/Web/WebControl.cpp`, `src/main.cpp`
 
 ### ⚡ Changed — Auto-center FRAM Write Moved to Core 0
-
-- Auto-center completion no longer writes FRAM directly on Core 1; it pushes a `SaveRequest` to the Core 0 save queue.
-- `SaveRequest` extended with factory-zero fields (`factory_zero_az_steps`, `factory_zero_alt_steps`, `has_factory_zero`).
-- Removed a redundant `homed` WebSocket push on Core 1 (Core 0 already broadcasts it every 250 ms).
 
 **Files:** `src/main.cpp`
 
 ## [1.2.58] - 2026-08-17
 
-
 ### Added — Swap Az-Alt Motor Ports
-
-New **Swap Az-Alt motor ports** checkbox in Admin Config (right above "Show hardlimit monitor").
-
-- Persisted to FRAM (marker `0xAA`); takes effect after reboot.
-- Swaps, in software, the two motor ports:
-  - STEP/DIR pins (`AccelStepper::setPins()` runtime remap).
-  - Logical TMC2209 driver mapping via `AZ_DRV` / `ALT_DRV` pointers.
-  - DIAG pin mapping (StallGuard / hard-limit monitor and protection).
 
 **Files:** `lib/AccelStepper/src/AccelStepper.{h,cpp}`, `src/FRAM/ConfigManager.h`, `src/Steper/Steper.{h,cpp}`, `src/main.cpp`, `src/Serial/SerialControl.cpp`, `src/Web/WebControl.cpp`, `data/index.html`, `data/script.js`
 
 ### Changed — 5 s Non-Blocking Reboot Countdown
 
-- Serial `Save&Reboot` now counts down **5 s without blocking**: `networkTask` keeps processing logs, FRAM saves and telemetry while printing one dot per second, then reboots.
-- Web **SAVE ALL & REBOOT** countdown increased from 3 s to 5 s.
-
 **Files:** `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`, `src/main.cpp`, `data/script.js`
 
 ### Fixed — REBOOTING Status Maintained Until Reboot
 
-- Backend reports `sys_status = "REBOOTING"` while a reboot countdown is pending.
-- Frontend keeps the `REBOOTING` status (periodic `READY` updates no longer overwrite it) and resets on a fresh WebSocket connection.
-
 **Files:** `src/main.cpp`, `data/script.js`
-
 
 ## [1.2.57] - 2026-08-17
 
 ### Changed — Explicit Handshake Ownership (Serial vs Web)
 
-Control handshake is now explicitly owned by a single master and is **no longer auto-transferred** when the current master disconnects.
-
-| Before | After |
-|---|---|
-| Serial disconnect → `serialHasControl=false` → Web auto-unlocked | Serial disconnect → handshake becomes **free**; Web stays locked until a **new** connection handshakes |
-| Web control implied by `!serialHasControl` | New `webHasControl` flag marks the Web master explicitly |
-
-- Handshake is granted **only** on a new connection (`WS_EVT_CONNECT` or Serial `[MLAstroRPA-TC]`) and only when the handshake is free.
-- Web master disconnect releases the handshake and stops motors. A read-only client disconnect no longer stops motors or affects the Serial session.
-
 **Files:** `src/main.cpp`, `src/Web/WebControl.cpp`, `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`
 
 ### Added — Read-Only Web Access During Serial Control
-
-When the PC (Serial) holds control, the web UI can still connect and view realtime values instead of being rejected.
-
-- All control buttons are locked (dimmed).
-- A red `ERROR: System is locked by PC (Serial Control is Active).` line is written to System Log instead of showing the connection-rejected modal.
-- The `connectionRejected` modal now only appears when a second web client attempts to connect.
 
 **Files:** `src/Web/WebControl.cpp`, `src/main.cpp`, `data/script.js`, `data/style.css`
 
 ### Added — Serial Log (TX/RX) Panel
 
-- New **Serial Log (TX/RX)** panel showing received (`RX`) and transmitted (`TX`) serial lines, with `Show RX` / `Show TX` filters and a Clear button.
-- **Show Serial logs** checkbox: persisted to FRAM (marker `0xA9`). Serial log packets are forwarded over WebSocket **only when enabled**, to avoid flooding WebSocket telemetry. A new `setSerialLog` command toggles and saves the setting.
-- Fixed `TX null` entries: the `serial_log` JSON document was 512 B, smaller than the full idle telemetry (~600 B); increased to 800 B.
-
 **Files:** `src/main.cpp`, `src/Serial/SerialControl.cpp`, `src/Serial/SerialControl.h`, `src/FRAM/ConfigManager.h`, `src/Web/WebControl.cpp`, `data/index.html`, `data/script.js`, `data/style.css`
 
 ### Added — Serial Command Replies Logged to Web
 
-All Serial `ok` / `error: ...` replies are now logged as TX in the web Serial Log via a new `serialReply()` helper (align, jog, home, speed, settings, WiFi/AP, etc.). Previously only telemetry TX was logged, so command acknowledgements were invisible in the web UI.
-
 **Files:** `src/Serial/SerialControl.cpp`
 
 ### Changed — UI & Log Panel Usability
-
-- Panel collapse now toggles **only** via the arrow (chevron) area, not the whole header row.
-- Serial log text is selectable for copy/paste.
-- Log & monitor panel buttons (Clear, Export CSV, Reset Error, Show RX/TX) remain usable while the Serial master is active.
 
 **Files:** `data/script.js`, `data/style.css`
 
@@ -670,87 +273,13 @@ All Serial `ok` / `error: ...` replies are now logged as TX in the web Serial Lo
 
 ### Changed — Single-Session Connection Control
 
-Previously, when a new connection (WebSocket or Serial) was established, the system would forcibly take control from the existing session. This "take control" logic has been replaced with a **single-session** mechanism: only **one** control session is allowed at any time. New connections are rejected if the system is already busy.
+###  Added — Serial Handshake Returns Device Identity
 
-#### Connection State Machine
+###  Changed — WiFi Passwords Removed from Telemetry; MAC Addresses Added
 
-```mermaid
-flowchart TD
-    IDLE["🟢 System Idle"]
-    WS["🔵 WebSocket Active"]
-    SER["🟠 Serial Active"]
+###  Added — Standalone Password Query Commands
 
-    IDLE -->|"WS connect ✅"| WS
-    IDLE -->|"Serial [MLAstroRPA-TC] ✅"| SER
-
-    WS -->|"WS disconnect"| IDLE
-    SER -->|"Heartbeat timeout"| IDLE
-
-    WS -.->|"2nd WS ❌<br/>connectionRejected"| WS
-    WS -.->|"Serial handshake ❌<br/>error: System is busy"| WS
-    SER -.->|"WS connect ❌<br/>connectionRejected"| SER
-```
-
-#### Backend Changes
-
-| File | Change |
-|---|---|
-| `src/Web/WebControl.cpp` | `WS_EVT_CONNECT`: checks `serialHasControl` and existing WebSocket client count. If system is busy → sends `{"cmd":"connectionRejected","reason":"..."}` then closes the connection. **No longer** forcibly takes over Serial or kicks existing clients. |
-| `src/main.cpp` | Serial handshake `[MLAstroRPA-TC]`: checks `ws.count() > 0` before accepting. If a WebSocket client is active → returns `error: System is busy. Web client is connected.`. Serial messages without control permission → return `error: Not connected.` instead of being silently ignored. |
-
-#### Frontend Changes
-
-| File | Change |
-|---|---|
-| `data/index.html` | Added `#connection-locked-overlay` — fullscreen overlay with 🔒 icon, displays the rejection reason from server, and a "Close This Page" button. |
-| `data/style.css` | Added styles for `.connection-locked-overlay` and `.connection-locked-card` with `fadeIn` + `slideUp` animations, red border, hover effects. |
-| `data/script.js` | `ws.onmessage` intercepts `connectionRejected` → calls `showConnectionLockedOverlay()` → closes WebSocket + blocks auto-reconnect. `showConnectionLockedOverlay()` locks the entire page, only allows closing the tab. |
-
-#### Behavior Matrix
-
-| System State | New WebSocket | New Serial Handshake |
-|---|---|---|
-| 🟢 **Idle** (no active sessions) | ✅ Accepted | ✅ Accepted |
-| 🔵 **WebSocket Active** | ❌ `connectionRejected` | ❌ `error: System is busy` |
-| 🟠 **Serial Active** | ❌ `connectionRejected` | ❌ (already has Serial, no second session possible) |
-
-### 🆔 Added — Serial Handshake Returns Device Identity
-
-The Serial handshake response now includes firmware version and device serial number (base MAC address).
-
-| Before | After |
-|---|---|
-| `ok` | `ok,firmware 1.2.43,SN:AA:BB:CC:DD:EE:F0` |
-
-**Source:** `src/main.cpp` — `networkTask()` handshake block. Uses `esp_efuse_mac_get_default()` for the permanent factory MAC.
-
-### 🔐 Changed — WiFi Passwords Removed from Telemetry; MAC Addresses Added
-
-WiFi passwords (`APpa`, `STAp`) have been **removed** from the periodic `?\n` telemetry stream for security. They are replaced by MAC addresses (`APma`, `STAm`).
-
-| Telemetry Key | Before | After |
-|---|---|---|
-| `APpa` | AP password (plaintext) | **Removed** |
-| `STAp` | STA password (plaintext) | **Removed** |
-| `APma` | — | AP MAC address (e.g. `AA:BB:CC:DD:EE:F1`) |
-| `STAm` | — | STA MAC address (e.g. `AA:BB:CC:DD:EE:F0`) |
-
-### ➕ Added — Standalone Password Query Commands
-
-Two new read-only query commands for retrieving WiFi passwords on demand:
-
-| Command | Response |
-|---|---|
-| `STAp:?\n` | `STAp:myWiFiPassword\n` |
-| `APpa:?\n` | `APpa:myAPPassword\n` |
-
-Set commands (`STAp:X\n`, `APpa:X\n`) continue to work as before.
-
-**Files changed:** `src/Serial/SerialControl.cpp`, `src/Serial-protocol.md`, `src/main.cpp`
-
-### 📋 Added — Build Script Copies CHANGELOG.md to HardwareUpdate
-
-The release build script (`.vscode/BUILD-REALEASE.py`) now copies `CHANGELOG.md` to the `HardwareUpdate/` directory alongside firmware artifacts for distribution.
+###  Added — Build Script Copies CHANGELOG.md to HardwareUpdate
 
 ---
 
