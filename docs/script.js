@@ -2608,11 +2608,29 @@ function formatUpdateReleaseDate(raw) {
   return Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString('vi-VN');
 }
 
+// GitHub API (api.github.com/repos/.../contents/) hay trả 403 do rate-limit ⇒ KHÔNG dùng để liệt kê file
+// nữa. meta.json trên raw.githubusercontent.com không bị rate-limit và đã chứa đủ tên/loại/version/size/ngày.
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/MLAstroRPA/Update/main/';
+
+function buildEntryFromMetaName(name, meta) {
+  const entry = (meta && meta[name]) || {};
+  return {
+    name,
+    size: Number(entry.size_bytes) || 0,
+    download_url: GITHUB_RAW_BASE + encodeURIComponent(name),
+  };
+}
+
 function buildUpdateCatalog(files, meta) {
   const groups = new Map();
   const extras = { bootloader: null, partitions: null };
 
-  files.forEach((file) => {
+  // files (danh sách từ GitHub API) có thể không có ⇒ dùng luôn meta.json làm nguồn duy nhất.
+  const list = (Array.isArray(files) && files.length)
+    ? files
+    : Object.keys(meta || {}).map((name) => buildEntryFromMetaName(name, meta));
+
+  list.forEach((file) => {
     const name = String(file.name || '');
     const lower = name.toLowerCase();
     if (!lower.endsWith('.bin')) return;
@@ -2747,6 +2765,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
           ${catalog.extras.partitions ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-partitions"><span>partitions.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
         </div>
+        ${window.isSecureContext ? `
         <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; width:100%;">
           <input type="checkbox" id="update-local-offline">
           <span>Local update <em>(use offline .bin files)</em></span>
@@ -2756,7 +2775,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           <button type="button" class="btn btn-secondary btn-small" id="pick-local-update-files">Select local .bin files</button>
           <div style="font-size:11px; color:var(--text-muted);">Detected by filename keywords only: firmware, bootloader, partition/partitions, spiffs.</div>
           <div id="local-update-file-list" style="display:grid; gap:8px;"></div>
-        </div>
+        </div>` : ''}
         <div style="font-size:11px; color:var(--text-muted);">ESP Web Tools uses Web Serial &mdash; COM port is selected via browser native dialog when clicking <b>INSTALL</b>. Requires Chrome/Edge and a secure context (HTTPS or localhost).</div>
         <div id="usb-context-warning" style="display:none; border:1px solid var(--danger); border-radius:6px; padding:10px; background: rgba(231, 76, 60, 0.08);">
           <div style="font-size:12px; color:var(--danger); margin-bottom:8px;">
@@ -3057,13 +3076,12 @@ function refreshUsbContextWarning() {
 
   if (!insecureContext) return;
 
-  // Client KHÔNG có internet ⇒ không thể mở Beta UI (GitHub Pages) ⇒ ẩn, hiện thông báo thay thế.
+  // Nút "Open Beta UI" luôn hiện (kể cả khi client đang offline) — chỉ cảnh báo là thêm/bớt.
   const offline = !otaClientOnline;
   const betaNoteEl = document.getElementById('beta-ui-note');
   const noNetEl = document.getElementById('usb-nonet-warning');
-  if (betaNoteEl) betaNoteEl.style.display = offline ? 'none' : 'block';
+  if (betaNoteEl) betaNoteEl.style.display = 'block';
   if (noNetEl) noNetEl.style.display = offline ? 'block' : 'none';
-  if (offline) return;
 
   const targetUrl = getPublicUsbUpdateUrl();
   const urlEl = document.getElementById('beta-ui-target-url');
@@ -3093,7 +3111,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
   const versionInputs = Array.from(document.querySelectorAll('input[name="update-version"]'));
   const bootloaderCheckbox = document.getElementById('include-bootloader');
   const partitionsCheckbox = document.getElementById('include-partitions');
-  if (!usbOptions || !localCheckbox || !localOptions || !onlineList || !primaryActionBtn) return;
+  if (!usbOptions || !onlineList || !primaryActionBtn) return;
 
   // Chế độ cài: 2 checkbox loại trừ nhau, cho phép cả hai đều trống (= cài version đang chọn)
   const getUpdateMode = () => getUpdateModeChoice();
@@ -3147,15 +3165,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
       clearUpdateModalError();
       if (comCheckbox.checked) {
         if (localWifiCheckbox) localWifiCheckbox.checked = false;   // loại trừ nhau
-        // Trang thiết bị chạy HTTP ⇒ Web Serial bị chặn ⇒ MỞ TAB Beta UI (HTTPS, ?updates=1)
-        // để cài qua COM port ở đó (nhúng iframe KHÔNG chạy được vì secure-context kế thừa từ cha).
-        if (!window.isSecureContext) {
-          if (otaClientOnline) {
-            openBetaUiTab();
-          } else {
-            showUpdateModalError('This device has no internet, can not use this progress/session/function. Use Update via OTA (Wi-Fi) instead.');
-          }
-        }
+        // KHÔNG tự mở tab Beta UI nữa — người dùng bấm nút "Open Beta UI" trong khối COM khi cần.
         applyUpdateMode();
         return;
       }
@@ -3185,22 +3195,25 @@ function wireUpdateModalInteractions(catalog, options = {}) {
     });
   }
 
-  localCheckbox.addEventListener('change', (e) => {
-    clearUpdateModalError();
-    if (e.target.checked) {
-      localOptions.classList.remove('hidden');
-      localOptions.style.display = 'grid';
-      // Hide bootloader/partitions extras — local mode manages its own files
-      if (extrasBlock) extrasBlock.style.display = 'none';
-    } else {
-      localOptions.classList.add('hidden');
-      localOptions.style.display = 'none';
-      // Restore extras block if it has content
-      if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
-    }
-    // Áp lại mode để ẩn/hiện bảng chọn version theo checkbox "Local update".
-    applyUpdateMode();
-  });
+  // Ô "Local update (use offline .bin files)" chỉ được render khi chạy ở secure context (HTTPS).
+  if (localCheckbox && localOptions) {
+    localCheckbox.addEventListener('change', (e) => {
+      clearUpdateModalError();
+      if (e.target.checked) {
+        localOptions.classList.remove('hidden');
+        localOptions.style.display = 'grid';
+        // Hide bootloader/partitions extras — local mode manages its own files
+        if (extrasBlock) extrasBlock.style.display = 'none';
+      } else {
+        localOptions.classList.add('hidden');
+        localOptions.style.display = 'none';
+        // Restore extras block if it has content
+        if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
+      }
+      // Áp lại mode để ẩn/hiện bảng chọn version theo checkbox "Local update".
+      applyUpdateMode();
+    });
+  }
 
   if (pickBtn && fileInput) {
     pickBtn.addEventListener('click', () => {
@@ -3350,7 +3363,7 @@ async function renderUsbDashboardInModal(catalog) {
 
   // Client không có internet ⇒ ESP Web Tools (tải từ unpkg) và trang Beta UI đều không dùng được
   if (!otaClientOnline) {
-    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">This device has no internet, can not use this progress/session/function. Use <b>Update firmware from local</b> (Wi-Fi), or connect this device to the internet.</div></div>';
+    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">This device has no internet, can not use this progress/session/function. Use <b>Update via OTA</b> (Wi-Fi), or connect this device to the internet.</div></div>';
     return;
   }
 
@@ -3511,7 +3524,6 @@ function failBrowserOtaStep(reason) {
 async function checkAllUpdates() {
   const repoOwner = 'MLAstroRPA';
   const repoName = 'Update';
-  const apiUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/`;
   const metaUrl = `https://raw.githubusercontent.com/${repoOwner}/${repoName}/main/meta.json`;
 
   showModal('Checking Updates', `<div class="wifi-scanning">Fetching firmware list...</div>`);
@@ -3519,19 +3531,19 @@ async function checkAllUpdates() {
   try {
     const backendAvailable = await waitForBackendStatus(1200);
 
-    // 1) Ưu tiên internet của CHÍNH client (nhanh, không tốn tài nguyên ESP32).
-    let files = await fetchJsonWithTimeout(apiUrl, 6000);
+    // Danh sách version lấy từ meta.json (raw.githubusercontent.com). KHÔNG dùng api.github.com vì
+    // endpoint đó hay trả 403 (rate-limit) dù máy vẫn có internet ⇒ trước đây bị hiểu nhầm là mất mạng.
     let meta = {};
-    otaClientOnline = Boolean(files);
+    const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
+    otaClientOnline = Boolean(directMeta && typeof directMeta === 'object' && Object.keys(directMeta).length);
 
     if (otaClientOnline) {
-      const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
-      if (directMeta && typeof directMeta === 'object') meta = directMeta;
+      meta = directMeta;
     } else {
-      // 2) Client không có internet → nhờ ESP32 tải hộ danh sách (ESP32 phải có internet qua STA).
+      // 2) Client không có internet → nhờ ESP32 tải hộ meta.json (ESP32 phải có internet qua STA).
       //    Khi đó .bin cũng do ESP32 tự tải (browser không có mạng để đẩy hộ).
-      files = await fetchJsonWithTimeout('/api/ota/catalog?what=files', 25000);
-      if (!files) {
+      const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 25000);
+      if (!proxiedMeta || typeof proxiedMeta !== 'object' || !Object.keys(proxiedMeta).length) {
         // Cả client lẫn ESP32 đều không lấy được danh sách ⇒ nhắc người dùng cấp internet cho 1 trong 2.
         throw new Error(
           'Cannot fetch firmware from internet.<br><br>' +
@@ -3540,11 +3552,10 @@ async function checkAllUpdates() {
           '<br><br>You can still update offline: tick <b>Update via OTA</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
         );
       }
-      const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 25000);
-      if (proxiedMeta && typeof proxiedMeta === 'object') meta = proxiedMeta;
+      meta = proxiedMeta;
     }
 
-    const catalog = buildUpdateCatalog(files, meta);
+    const catalog = buildUpdateCatalog(null, meta);
     if (!catalog.versions.length) {
       showModal('No Updates', 'No versioned firmware/spiffs packages were found in the repository.');
       return;
