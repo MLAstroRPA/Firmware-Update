@@ -1,186 +1,4 @@
 {
-  "firmware 1.2.60.bin": {
-    "description": "Update WebUI: tab swicher stick with header",
-    "type": "firmware",
-    "version": "1.2.60",
-    "size_bytes": 1221808,
-    "release_date_utc": "2026-08-19T03:59:36Z"
-  },
-  "spiffs 1.2.60.bin": {
-    "description": "Update WebUI: tab swicher stick with header",
-    "type": "spiffs",
-    "version": "1.2.60",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-19T03:59:36Z"
-  },
-  "firmware 1.2.61.bin": {
-    "description": "fix: enhance stop command handling for 2 axes running sequentially",
-    "type": "firmware",
-    "version": "1.2.61",
-    "size_bytes": 1223248,
-    "release_date_utc": "2026-08-19T11:20:09Z"
-  },
-  "spiffs 1.2.61.bin": {
-    "description": "fix: enhance stop command handling for 2 axes running sequentially",
-    "type": "spiffs",
-    "version": "1.2.61",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-19T11:20:09Z"
-  },
-  "firmware 1.2.62.bin": {
-    "description": "fix: Default AP SSID is appended with the MAC address suffix.",
-    "type": "firmware",
-    "version": "1.2.62",
-    "size_bytes": 1223248,
-    "release_date_utc": "2026-08-22T04:25:14Z"
-  },
-  "spiffs 1.2.62.bin": {
-    "description": "fix: Default AP SSID is appended with the MAC address suffix.",
-    "type": "spiffs",
-    "version": "1.2.62",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-22T04:25:14Z"
-  },
-  "firmware 1.2.63.bin": {
-    "description": "feat: add STATUS LED work same as BUZZER",
-    "type": "firmware",
-    "version": "1.2.63",
-    "size_bytes": 1223280,
-    "release_date_utc": "2026-08-25T03:08:53Z"
-  },
-  "spiffs 1.2.63.bin": {
-    "description": "feat: add STATUS LED work same as BUZZER",
-    "type": "spiffs",
-    "version": "1.2.63",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-25T03:08:53Z"
-  },
-  "firmware 1.2.64.bin": {
-    "description": "feat: Add RESET ERROR over Serial cmd",
-    "type": "firmware",
-    "version": "1.2.64",
-    "size_bytes": 1223584,
-    "release_date_utc": "2026-08-26T10:17:03Z"
-  },
-  "spiffs 1.2.64.bin": {
-    "description": "feat: Add RESET ERROR over Serial cmd",
-    "type": "spiffs",
-    "version": "1.2.64",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-26T10:17:03Z"
-  },
-  "firmware 1.2.65.bin": {
-    "description": "Fix: add Open-Load Error, Move Hardlimit into Admin Config",
-    "type": "firmware",
-    "version": "1.2.65",
-    "size_bytes": 1225472,
-    "release_date_utc": "2026-08-27T10:52:35Z"
-  },
-  "spiffs 1.2.65.bin": {
-    "description": "Fix: add Open-Load Error, Move Hardlimit into Admin Config",
-    "type": "spiffs",
-    "version": "1.2.65",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-27T10:52:35Z"
-  },
-  "firmware 1.2.66.bin": {
-    "description": "feat: report error over serial communication",
-    "type": "firmware",
-    "version": "1.2.66",
-    "size_bytes": 1229792,
-    "release_date_utc": "2026-08-28T07:45:21Z"
-  },
-  "spiffs 1.2.66.bin": {
-    "description": "feat: report error over serial communication",
-    "type": "spiffs",
-    "version": "1.2.66",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-08-28T07:45:21Z"
-  },
-  "firmware 1.2.67.bin": {
-    "description": "Fix: Increase Open Load ERROR sensitive",
-    "type": "firmware",
-    "version": "1.2.67",
-    "size_bytes": 1229776,
-    "release_date_utc": "2026-09-03T03:07:50Z"
-  },
-  "spiffs 1.2.67.bin": {
-    "description": "Fix: Increase Open Load ERROR sensitive",
-    "type": "spiffs",
-    "version": "1.2.67",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-03T03:07:50Z"
-  },
-  "firmware 1.2.68.bin": {
-    "description": "Fix: bug motor no stop when reached softlimit",
-    "type": "firmware",
-    "version": "1.2.68",
-    "size_bytes": 1233584,
-    "release_date_utc": "2026-09-07T05:42:04Z"
-  },
-  "spiffs 1.2.68.bin": {
-    "description": "Fix: bug motor no stop when reached softlimit",
-    "type": "spiffs",
-    "version": "1.2.68",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-07T05:42:04Z"
-  },
-  "firmware 1.2.69.bin": {
-    "description": "fix: Bug reset ESP when press APPLY",
-    "type": "firmware",
-    "version": "1.2.69",
-    "size_bytes": 1236304,
-    "release_date_utc": "2026-09-07T11:29:23Z"
-  },
-  "spiffs 1.2.69.bin": {
-    "description": "fix: Bug reset ESP when press APPLY",
-    "type": "spiffs",
-    "version": "1.2.69",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-07T11:29:23Z"
-  },
-  "firmware 1.2.70.bin": {
-    "description": "turn OFF openload detected",
-    "type": "firmware",
-    "version": "1.2.70",
-    "size_bytes": 1236160,
-    "release_date_utc": "2026-09-07T14:46:10Z"
-  },
-  "spiffs 1.2.70.bin": {
-    "description": "turn OFF openload detected",
-    "type": "spiffs",
-    "version": "1.2.70",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-07T14:46:10Z"
-  },
-  "firmware 1.2.71.bin": {
-    "description": "fix: remake Open-Load Detection Now Reads the Driver's OLA/OLB Flags (SG_RESULT Dropped)",
-    "type": "firmware",
-    "version": "1.2.71",
-    "size_bytes": 1236288,
-    "release_date_utc": "2026-09-08T12:32:15Z"
-  },
-  "spiffs 1.2.71.bin": {
-    "description": "fix: remake Open-Load Detection Now Reads the Driver's OLA/OLB Flags (SG_RESULT Dropped)",
-    "type": "spiffs",
-    "version": "1.2.71",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-08T12:32:15Z"
-  },
-  "firmware 1.2.72.bin": {
-    "description": "fix: Move relative did not apply backlash",
-    "type": "firmware",
-    "version": "1.2.72",
-    "size_bytes": 1237088,
-    "release_date_utc": "2026-09-11T15:52:04Z"
-  },
-  "spiffs 1.2.72.bin": {
-    "description": "fix: Move relative did not apply backlash",
-    "type": "spiffs",
-    "version": "1.2.72",
-    "size_bytes": 1507328,
-    "release_date_utc": "2026-09-11T15:52:04Z"
-  },
   "firmware 1.3.0.bin": {
     "description": "[New feat] add mDNS function, NINA plugin now can connect with firmware wirelessly using address: `MLAstroRPA.local`/STA ip/AP ip",
     "type": "firmware",
@@ -278,5 +96,19 @@
     "version": "1.7.0",
     "size_bytes": 393216,
     "release_date_utc": "2026-09-19T07:32:00Z"
+  },
+  "firmware 1.8.0.bin": {
+    "description": "Fix: update routine now use client internet first, then fallback to ESP internet to fetch firmware from online host",
+    "type": "firmware",
+    "version": "1.8.0",
+    "size_bytes": 1284960,
+    "release_date_utc": "2026-09-19T12:34:39Z"
+  },
+  "spiffs 1.8.0.bin": {
+    "description": "Fix: update routine now use client internet first, then fallback to ESP internet to fetch firmware from online host",
+    "type": "spiffs",
+    "version": "1.8.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-09-19T12:34:39Z"
   }
 }

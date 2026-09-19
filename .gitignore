@@ -1,0 +1,5 @@
+# Merged full-flash image, built by MLAstroRPA-webserver\.vscode\BUILD-REALEASE.py
+# (bootloader + partitions + firmware + spiffs, one single write-flash at 0x1000).
+# NOT committed: it is ~4 MB and fully reproducible from the four .bin files next to it.
+# It is uploaded as the ONLY GitHub release asset (see skill release-repo).
+MLAstroRPA-full-*.bin
