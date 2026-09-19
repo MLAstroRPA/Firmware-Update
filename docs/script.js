@@ -2914,7 +2914,7 @@ function renderLocalWifiFileList() {
 }
 
 function showLocalWifiUpdateModal() {
-  showModal('Update Firmware From Local', `
+  showModal('Update via OTA', `
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
       Flash <b>firmware</b> and/or <b>spiffs</b> straight from this device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable.
       <br>Use the official <b>firmware x.y.z.bin</b> / <b>spiffs x.y.z.bin</b> of a release you already have on this device.
@@ -3656,7 +3656,7 @@ async function checkAllUpdates() {
     // Web Serial trên máy có internet) và cho thử lại sau khi đã cấp internet cho 1 trong 2 phía.
     showModal('Cannot Fetch Firmware From Internet', `${err.message}`, [
       {
-        text: 'Update firmware from local',
+        text: 'Update via OTA',
         class: 'btn-primary',
         closeOnClick: false, // mở modal khác trong callback ⇒ không để showModal tự đóng
         callback: () => showLocalWifiUpdateModal(),
