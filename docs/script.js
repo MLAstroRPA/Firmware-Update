@@ -44,7 +44,11 @@ const FLASH_OFFSETS = {
   partitions: '0x8000',
   firmware: '0x10000',
   spiffs: '0x398000',
+  // Ảnh GỘP 4 bin do build script sinh ra (MLAstroRPA-full-x.y.z.bin = toàn bộ 4 MB flash,
+  // 4 KB đầu là 0xFF) ⇒ nạp DUY NHẤT file này ở 0x0, không cần bootloader/partitions/firmware/spiffs.
+  merged: '0x0',
 };
+// 'merged' KHÔNG nằm trong danh sách này: nó là chế độ loại trừ (chỉ 1 file, đè hết các phần kia).
 const FLASH_KIND_ORDER = ['bootloader', 'partitions', 'firmware', 'spiffs'];
 
 // Helper: Trích xuất số phiên bản x.x.x từ chuỗi
@@ -2773,7 +2777,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
         <div id="local-update-options" class="hidden" style="display:none; gap:10px; border:1px dashed var(--border); border-radius:6px; padding:10px;">
           <input type="file" id="local-update-files" multiple accept=".bin" style="display:none;">
           <button type="button" class="btn btn-secondary btn-small" id="pick-local-update-files">Select local .bin files</button>
-          <div style="font-size:11px; color:var(--text-muted);">Detected by filename keywords only: firmware, bootloader, partition/partitions, spiffs.</div>
+          <div style="font-size:11px; color:var(--text-muted);">Detected by filename keywords only: firmware, bootloader, partition/partitions, spiffs — or a merged full-flash image (name containing <b>full</b>, e.g. <b>MLAstroRPA-full-1.8.0.bin</b>, written from 0x0).</div>
           <div id="local-update-file-list" style="display:grid; gap:8px;"></div>
         </div>` : ''}
         <div style="font-size:11px; color:var(--text-muted);">ESP Web Tools uses Web Serial &mdash; COM port is selected via browser native dialog when clicking <b>INSTALL</b>. Requires Chrome/Edge and a secure context (HTTPS or localhost).</div>
@@ -2817,6 +2821,9 @@ function clearUpdateModalError() {
 
 function detectFlashKindFromName(filename) {
   const lower = String(filename || '').toLowerCase();
+  // Ảnh GỘP (MLAstroRPA-full-x.y.z.bin — sinh bởi BUILD-REALEASE.py) kiểm tra TRƯỚC các từ khoá
+  // khác: tên có thể chứa cả "firmware" (vd "firmware full 1.7.1.bin") mà file gộp mới là đúng.
+  if (lower.includes('full') || lower.includes('merged')) return 'merged';
   if (lower.includes('bootloader')) return 'bootloader';
   if (lower.includes('partition')) return 'partitions';
   if (lower.includes('firmware')) return 'firmware';
@@ -2831,6 +2838,7 @@ function collectLocalUpdateFiles(inputId = 'local-update-files') {
     partitions: null,
     firmware: null,
     spiffs: null,
+    merged: null,
   };
   if (!input || !input.files) return selected;
 
@@ -2847,6 +2855,20 @@ function renderLocalUpdateFileList() {
   if (!container) return;
 
   const filesByKind = collectLocalUpdateFiles();
+
+  // Ảnh GỘP (MLAstroRPA-full-*.bin) đã chứa cả bootloader + partitions + firmware + spiffs
+  // ⇒ chỉ hiện nó; trộn ảnh gộp với file lẻ là sai (ghi đè nhau).
+  if (filesByKind.merged) {
+    const merged = filesByKind.merged;
+    container.innerHTML = `
+      <label class="checkbox-label" style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <input type="checkbox" id="local-file-kind-merged" checked>
+        <span style="font-size:12px;"><strong>full image</strong>: ${merged.name} <span style="color:var(--text-muted);">(${(merged.size / 1024).toFixed(1)} KB @ 0x0)</span></span>
+      </label>
+      <div style="font-size:11px; color:var(--text-muted);">Merged image = bootloader + partitions + firmware + SPIFFS in one file, written from 0x0. Other selected files are ignored.</div>`;
+    return;
+  }
+
   const items = [];
   FLASH_KIND_ORDER.forEach((kind) => {
     const file = filesByKind[kind];
@@ -2860,7 +2882,7 @@ function renderLocalUpdateFileList() {
   });
 
   if (!items.length) {
-    container.innerHTML = '<div style="font-size:12px; color:var(--warning);">No recognized file found. Select .bin files containing names: firmware, bootloader, partition(s), spiffs.</div>';
+    container.innerHTML = '<div style="font-size:12px; color:var(--warning);">No recognized file found. Select .bin files containing names: firmware, bootloader, partition(s), spiffs — or a merged full image (name with <b>full</b>).</div>';
     return;
   }
 
@@ -2870,6 +2892,14 @@ function renderLocalUpdateFileList() {
 function getSelectedLocalParts() {
   const filesByKind = collectLocalUpdateFiles();
   const parts = [];
+
+  // Ảnh gộp được tick ⇒ CHỈ nạp nó ở 0x0, bỏ qua mọi file lẻ khác.
+  const mergedFile = filesByKind.merged;
+  if (mergedFile && document.getElementById('local-file-kind-merged')?.checked) {
+    const mergedUrl = URL.createObjectURL(mergedFile);
+    parts.push({ kind: 'merged', path: mergedUrl, offset: FLASH_OFFSETS.merged, _blobUrl: mergedUrl });
+    return parts;
+  }
 
   FLASH_KIND_ORDER.forEach((kind) => {
     const file = filesByKind[kind];
@@ -2906,6 +2936,9 @@ function renderLocalWifiFileList() {
 
   if (filesByKind.bootloader || filesByKind.partitions) {
     items.push('<div style="font-size:11px; color:var(--warning);">bootloader / partitions cannot be written over Wi-Fi (the running firmware cannot reflash the bootloader or the partition table) — use the Multi-ESP-Flasher tool or the Beta UI over USB.</div>');
+  }
+  if (filesByKind.merged) {
+    items.push('<div style="font-size:11px; color:var(--warning);">A merged full-flash image cannot be written over Wi-Fi (it contains bootloader + partitions + the partition table) — use <b>Update via COM port</b> (USB) with this file.</div>');
   }
 
   container.innerHTML = items.length
@@ -2954,6 +2987,13 @@ function startLocalWifiUpdate(reportError) {
   }
 
   const filesByKind = collectLocalUpdateFiles('local-wifi-files');
+
+  // Ảnh gộp chứa bootloader + partition table ⇒ KHÔNG thể ghi qua Wi-Fi (chỉ qua USB/COM port).
+  if (filesByKind.merged) {
+    fail('A merged full-flash image cannot be written over Wi-Fi. Use "Update via COM port" (USB) with this file, or select the separate firmware / spiffs .bin files.');
+    return;
+  }
+
   const steps = [];
   ['firmware', 'spiffs'].forEach((kind) => {
     const file = filesByKind[kind];
