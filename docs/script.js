@@ -2981,6 +2981,68 @@ function closeSelfIfOpenedFromDevice() {
   }, 3000);
 }
 
+// ---- ESP Web Tools: bám vào hộp thoại để biết flash đã xong & tự đóng tab ----------------
+// ESP Web Tools v9 KHÔNG phát sự kiện 'state-changed' ra ngoài trang: nút CONNECT chỉ tạo phần tử
+// <ewt-install-dialog> gắn vào document.body, và hộp thoại đó chỉ phát MỘT sự kiện 'closed' khi
+// người dùng đóng nó (cổng COM cũng được nhả đúng lúc này). Vì vậy phải theo dõi hộp thoại đó.
+let usbFlashSucceeded = false;
+let usbFlashWatchTimer = null;
+let usbFlashDialogEl = null;
+
+function readUsbFlashSuccess(dialogEl) {
+  if (!dialogEl) return false;
+  const installState = dialogEl._installState;
+  if (installState && installState.state === 'finished') return true;
+  const shadowText = dialogEl.shadowRoot ? dialogEl.shadowRoot.textContent : '';
+  return Boolean(shadowText) && shadowText.indexOf('Installation complete') >= 0;
+}
+
+function stopUsbFlashWatch() {
+  if (usbFlashWatchTimer) {
+    clearInterval(usbFlashWatchTimer);
+    usbFlashWatchTimer = null;
+  }
+}
+
+function onUsbFlashDialogClosed(dialogEl) {
+  const succeeded = usbFlashSucceeded || readUsbFlashSuccess(dialogEl);
+  stopUsbFlashWatch();
+  usbFlashDialogEl = null;
+  if (!succeeded) {
+    showMessage('USB flashing was cancelled or failed.', '#save-message', 5000);
+    return;
+  }
+  usbFlashPhase = 'finished';
+  showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
+  closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng tab
+}
+
+function watchUsbFlashDialog(dialogEl) {
+  if (!dialogEl || dialogEl === usbFlashDialogEl) return;
+  usbFlashDialogEl = dialogEl;
+  usbFlashSucceeded = false;
+  stopUsbFlashWatch();
+  dialogEl.addEventListener('closed', () => onUsbFlashDialogClosed(dialogEl), { once: true });
+  // Trạng thái 'finished' chỉ tồn tại trong lúc hộp thoại hiện "Installation complete!" ⇒ poll
+  // để giữ cờ dính (sau khi bấm Next, _installState bị xoá về undefined).
+  usbFlashWatchTimer = setInterval(() => {
+    if (readUsbFlashSuccess(dialogEl)) usbFlashSucceeded = true;
+  }, 400);
+}
+
+function setupUsbFlashDialogWatcher() {
+  const scan = () => watchUsbFlashDialog(document.querySelector('ewt-install-dialog'));
+  const observer = new MutationObserver(scan);
+  observer.observe(document.body, { childList: true });
+  scan();
+}
+
+if (document.body) {
+  setupUsbFlashDialogWatcher();
+} else {
+  document.addEventListener('DOMContentLoaded', setupUsbFlashDialogWatcher);
+}
+
 function refreshUsbContextWarning() {
   const warningEl = document.getElementById('usb-context-warning');
   if (!warningEl) return;
