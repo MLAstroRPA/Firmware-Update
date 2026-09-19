@@ -2714,6 +2714,23 @@ function buildUpdateModalMarkup(catalog, options = {}) {
     ` : ''}
     <div id="online-version-list" style="max-height: 280px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">${optionsHtml}</div>
     <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:grid; gap:10px;">
+      <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
+      <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="update-local-wifi-check" ${forceUsb ? 'disabled title="OTA needs a live connection to the device. This page is not served by the device \u2014 use Update via COM port."' : 'checked'}>
+        <span>Update via OTA</span>
+      </label>
+      <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
+        <input type="checkbox" id="update-local-wifi-offline">
+        <span>Local update <em>(only firmware.bin or spiffs.bin)</em></span>
+      </label>
+      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+        <div style="font-size:11px; color:var(--text-muted);">
+          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
+        </div>
+        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
+      </div>
       <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center;">
         ${isMobileClient() ? '' : `
         <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
@@ -2760,23 +2777,6 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           </div>
         </div>
         <div id="update-modal-usb-host" class="hidden"></div>
-      </div>
-      <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
-      <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" id="update-local-wifi-check" ${forceUsb ? '' : 'checked'}>
-        <span>Update via OTA</span>
-      </label>
-      <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
-        <input type="checkbox" id="update-local-wifi-offline">
-        <span>Local update <em>(only firmware.bin or spiffs.bin)</em></span>
-      </label>
-      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
-        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
-        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
-        <div style="font-size:11px; color:var(--text-muted);">
-          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
-        </div>
-        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
       </div>
       <div id="update-modal-error" style="display:none; color:var(--danger); font-size:12px;"></div>
     </div>`;
