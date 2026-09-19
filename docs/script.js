@@ -3476,6 +3476,14 @@ async function renderUsbDashboardInModal(catalog) {
 }
 
 function startOtaPlan(version, steps, options = {}) {
+  // ⚠️ Chống nhiều plan chạy SONG SONG trong cùng tab: mỗi lần bấm START UPDATE lại tạo một plan mới
+  // (sid khác nhau) ⇒ các plan gửi khối 0 với sid khác nhau, thiết bị từ chối luồng này để bảo vệ
+  // luồng kia ⇒ không luồng nào cài được và hiện "Another upload is already in progress" (bug thật
+  // 2026-09-19). Đang có plan chạy thì bỏ qua, báo rõ cho người dùng.
+  if (otaPlan) {
+    showModal('Update already running', 'An update is already running in this tab. Wait for it to finish (or reload the page to cancel it).', [{ text: 'OK' }]);
+    return;
+  }
   otaMode = 'ota';
   // useBrowserUpload = browser tải .bin rồi đẩy từng khối vào ESP. CHỈ dùng khi ESP32 KHÔNG có
   // internet (espOtaOnline == false) — mặc định ESP tự tải qua STA (ưu tiên, user chốt 2026-09-19).
