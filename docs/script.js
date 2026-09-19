@@ -63,8 +63,8 @@ function isMobileClient() {
 }
 
 // Chế độ cài trong modal update — dùng 2 CHECKBOX nhưng LOẠI TRỪ NHAU (tick ô này thì bỏ tick ô kia):
-//   'com'   = Update via COM port (ESP Web Tools)
-//   'local' = Update firmware from local (đẩy file .bin qua Wi-Fi)
+//   'com'   = Update via COM port (ESP Web Tools) — flash qua cáp
+//   'local' = Update via OTA — không cáp: OTA theo version đang chọn, hoặc đẩy file .bin đã chọn qua Wi-Fi
 //   'none'  = không tick ô nào ⇒ cài version đang chọn (OTA qua mạng)
 function getUpdateModeChoice() {
   if (document.getElementById('update-via-usb')?.checked) return 'com';
@@ -2698,7 +2698,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
       </div>
     `
     : `
-      <div style="margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; font-size:12px; color:var(--text-muted);">
+      <div id="ota-transport-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
         OTA is downloaded by this browser and pushed to the device, so the ESP32 does not need its own internet connection. Keep this tab open until the update finishes.
       </div>
     `;
@@ -2706,7 +2706,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
   return `
     ${transportNote}
     ${forceUsb ? `
-      <div style="margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
+      <div id="usb-forced-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
         ${isMobileClient()
           ? '<b>Device is not connected.</b> Reload this page and try again &mdash; Wi-Fi update needs a live connection to the device.'
           : 'Backend is not connected. USB Serial update has been selected automatically. OTA is unavailable right now.'}
@@ -2720,25 +2720,12 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           <input type="checkbox" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
           <span>Update via COM port (ESP Web Tools)</span>
         </label>`}
-        <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" id="update-local-wifi-check">
-          <span>Update firmware from local</span>
-        </label>
       </div>
       ${isMobileClient() ? `
       <div style="font-size:11px; color:var(--text-muted);">
-        COM port update (Web Serial) is not available on phones/tablets &mdash; use <b>Update firmware from local</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
+        COM port update (Web Serial) is not available on phones/tablets &mdash; use <b>Update via OTA</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
       </div>` : ''}
-      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
-        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
-        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
-        <div style="font-size:11px; color:var(--text-muted);">
-          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
-        </div>
-        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
-      </div>
-      <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--primary);">
-        <div id="update-modal-usb-host" class="hidden"></div>
+      <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
         <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
           ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
           ${catalog.extras.partitions ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-partitions"><span>partitions.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
@@ -2761,7 +2748,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           <div id="usb-nonet-warning" style="display:none; border:1px dashed var(--warning); border-radius:6px; padding:8px; margin-bottom:8px; font-size:12px; color:var(--warning);">
             This device has no internet, can not use this progress/session/function.
             <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
-              The COM port update uses the Beta UI page (HTTPS), which needs internet on this device. Use <b>Update firmware from local</b> (Wi-Fi) instead, or connect this device to the internet.
+              The COM port update uses the Beta UI page (HTTPS), which needs internet on this device. Use <b>Update via OTA</b> (Wi-Fi) instead, or connect this device to the internet.
             </div>
           </div>
           <div id="beta-ui-note">
@@ -2772,6 +2759,24 @@ function buildUpdateModalMarkup(catalog, options = {}) {
             <button type="button" class="btn btn-secondary btn-small" id="open-beta-ui-page">Open Beta UI</button>
           </div>
         </div>
+        <div id="update-modal-usb-host" class="hidden"></div>
+      </div>
+      <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
+      <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="update-local-wifi-check" ${forceUsb ? '' : 'checked'}>
+        <span>Update via OTA</span>
+      </label>
+      <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
+        <input type="checkbox" id="update-local-wifi-offline">
+        <span>Local update <em>(only firmware.bin or spiffs.bin)</em></span>
+      </label>
+      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+        <div style="font-size:11px; color:var(--text-muted);">
+          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
+        </div>
+        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
       </div>
       <div id="update-modal-error" style="display:none; color:var(--danger); font-size:12px;"></div>
     </div>`;
@@ -3095,7 +3100,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
 
   const refreshPrimaryActionLabel = async () => {
     const mode = getUpdateMode();
-    primaryActionBtn.textContent = mode === 'local' ? 'START UPDATE (Wi-Fi)' : 'START UPDATE';
+    primaryActionBtn.textContent = 'START UPDATE';
     primaryActionBtn.style.display = mode === 'com' ? 'none' : '';
     if (mode === 'com') {
       await renderUsbDashboardInModal(catalog);
@@ -3106,15 +3111,28 @@ function wireUpdateModalInteractions(catalog, options = {}) {
 
   const applyUpdateMode = async () => {
     const mode = getUpdateMode();
+    const localOfflineChecked = Boolean(document.getElementById('update-local-wifi-offline')?.checked);
+    const comLocalChecked = Boolean(document.getElementById('update-local-offline')?.checked);
     usbOptions.classList.toggle('hidden', mode !== 'com');
     usbOptions.style.display = mode === 'com' ? 'grid' : 'none';
     if (localWifiOptions) {
-      localWifiOptions.classList.toggle('hidden', mode !== 'local');
-      localWifiOptions.style.display = mode === 'local' ? 'grid' : 'none';
+      // "Local update" chỉ hiện khi đã tick checkbox con (chọn .bin có sẵn trên máy).
+      const showLocalPicker = mode === 'local' && localOfflineChecked;
+      localWifiOptions.classList.toggle('hidden', !showLocalPicker);
+      localWifiOptions.style.display = showLocalPicker ? 'grid' : 'none';
     }
-    // Danh sách version vẫn hiện ở chế độ COM (để chọn version trước khi bấm CONNECT);
-    // chỉ ẩn khi chọn "Update firmware from local" (mode 'local' tự chọn file .bin).
-    onlineList.style.display = mode === 'local' ? 'none' : 'block';
+    // Hàng "Local update (only firmware.bin or spiffs.bin)" chỉ hiện khi checkbox Update via OTA được tick.
+    const otaLocalRow = document.getElementById('ota-local-checkbox-row');
+    if (otaLocalRow) otaLocalRow.style.display = mode === 'local' ? 'flex' : 'none';
+    // Ghi chú "OTA is downloaded by this browser..." chỉ hiện khi tick Update via OTA.
+    const otaTransportNote = document.getElementById('ota-transport-note');
+    if (otaTransportNote) otaTransportNote.style.display = mode === 'local' ? 'block' : 'none';
+    // Ghi chú "Backend is not connected..." chỉ hiện khi tick Update via COM port (mobile không có ô COM nên luôn hiện).
+    const usbForcedNote = document.getElementById('usb-forced-note');
+    if (usbForcedNote) usbForcedNote.style.display = (mode === 'com' || isMobileClient()) ? 'block' : 'none';
+    // Bảng chọn version chỉ ẩn khi tick "Local update" của mode đang chọn (dùng file .bin có sẵn trên máy).
+    const hideVersionList = (mode === 'com' && comLocalChecked) || (mode === 'local' && localOfflineChecked);
+    onlineList.style.display = hideVersionList ? 'none' : 'block';
     if (mode === 'com') {
       refreshUsbContextWarning();
       // Preload web component early to keep CONNECT flow snappy.
@@ -3135,7 +3153,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
           if (otaClientOnline) {
             openBetaUiTab();
           } else {
-            showUpdateModalError('This device has no internet, can not use this progress/session/function. Use Update firmware from local (Wi-Fi) instead.');
+            showUpdateModalError('This device has no internet, can not use this progress/session/function. Use Update via OTA (Wi-Fi) instead.');
           }
         }
         applyUpdateMode();
@@ -3158,6 +3176,15 @@ function wireUpdateModalInteractions(catalog, options = {}) {
     });
   }
 
+  // Checkbox con trong mode OTA: tick ⇒ ẩn bảng version, hiện nút chọn file .bin local.
+  const localWifiOfflineCheckbox = document.getElementById('update-local-wifi-offline');
+  if (localWifiOfflineCheckbox) {
+    localWifiOfflineCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      applyUpdateMode();
+    });
+  }
+
   localCheckbox.addEventListener('change', (e) => {
     clearUpdateModalError();
     if (e.target.checked) {
@@ -3171,7 +3198,8 @@ function wireUpdateModalInteractions(catalog, options = {}) {
       // Restore extras block if it has content
       if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
     }
-    refreshPrimaryActionLabel();
+    // Áp lại mode để ẩn/hiện bảng chọn version theo checkbox "Local update".
+    applyUpdateMode();
   });
 
   if (pickBtn && fileInput) {
@@ -3184,7 +3212,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
     });
   }
 
-  // Chế độ "Update firmware from local": chọn file .bin trên máy để đẩy sang thiết bị qua Wi-Fi
+  // Chế độ "Update via OTA": chọn file .bin trên máy để đẩy sang thiết bị qua Wi-Fi (offline)
   if (localWifiPickBtn && localWifiFileInput) {
     localWifiPickBtn.addEventListener('click', () => localWifiFileInput.click());
     localWifiFileInput.addEventListener('change', () => renderLocalWifiFileList());
@@ -3389,226 +3417,6 @@ async function renderUsbDashboardInModal(catalog) {
       }, 0);
     }
   });
-
-  installBtn.addEventListener('state-changed', (event) => {
-    const detail = event.detail || {};
-    console.log('[USB Flash State]', detail.state);
-    updateUsbProgressFromState(detail);
-
-    if (detail.state === 'finished') {
-      usbFlashPhase = 'finished';
-      showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
-      closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng
-      setTimeout(() => {
-        clearUsbDashboardHost(host);
-        hideModal();
-      }, 1000);
-    } else if (detail.state === 'error') {
-      showMessage(`USB flashing error: ${detail.error || 'unknown'}`, '#save-message', 5000);
-      if (modal) {
-        modal.classList.remove('modal-detached');
-      }
-    }
-  });
-}
-
-async function startUsbEspWebToolsInstall(group, catalog, localParts = null) {
-  clearUpdateModalError();
-
-  if (!hasWebSerialSupport()) {
-    showUpdateModalError('Web Serial unavailable. Open this page on HTTPS/localhost using Chrome or Edge.');
-    return;
-  }
-
-  try {
-    await ensureEspWebToolsLoaded();
-  } catch (err) {
-    showUpdateModalError(`Cannot load ESP Web Tools module: ${err.message || err}`);
-    return;
-  }
-
-  const manifestUrl = createEspWebToolsManifestUrl(group, catalog, localParts);
-  if (!manifestUrl) {
-    showUpdateModalError('No package selected to upload via USB.');
-    return;
-  }
-
-  hideModal();
-  otaPlan = null;
-  otaCurrentStepIndex = -1;
-  otaMode = 'usb';
-  usbFlashProgressHint = 0;
-  usbFlashPhase = 'erasing';
-  ensureProgressVisible(formatUsbPhaseChecklist('erasing', `ready for ${group?.version || 'local files'}...`));
-  updateProgressUI(0, formatUsbPhaseChecklist('erasing', 'waiting for CONNECT in USB dashboard...'));
-
-  const host = document.getElementById('usb-flash-host');
-  if (!host) {
-    showMessage('USB flash host not found in System Update panel.', '#save-message', 5000);
-    return;
-  }
-
-  host.classList.remove('hidden');
-  host.innerHTML = `
-    <div class="usb-flash-card">
-      <div class="usb-flash-title">USB Flash Dashboard</div>
-      <div class="usb-flash-help">Selected package: <strong>${group?.version || 'local files'}</strong>. Use the CONNECT button below to choose the COM port and start flashing.</div>
-      <esp-web-install-button id="esp-web-install-btn" manifest="${manifestUrl}"></esp-web-install-button>
-    </div>`;
-
-  await new Promise(r => setTimeout(r, 100));
-
-  const installBtn = document.getElementById('esp-web-install-btn');
-  if (!installBtn) {
-    host.classList.add('hidden');
-    host.innerHTML = '';
-    showMessage('USB flash component failed to load.', '#save-message', 5000);
-    return;
-  }
-
-  // Listen for flashing events
-  installBtn.addEventListener('state-changed', (event) => {
-    const detail = event.detail || {};
-    console.log('[USB Flash State]', detail.state);
-    updateUsbProgressFromState(detail);
-    
-    if (detail.state === 'finished') {
-      usbFlashPhase = 'finished';
-      updateProgressUI(100, formatUsbPhaseChecklist('finished', 'rebooting into application...'));
-      showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
-      closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng
-      setTimeout(() => {
-        host.innerHTML = '';
-        host.classList.add('hidden');
-      }, 1000);
-    } else if (detail.state === 'error') {
-      updateProgressUI(usbFlashProgressHint || 0, `USB flash failed: ${detail.error || 'unknown error'}`);
-      showMessage(`USB flashing error: ${detail.error || 'unknown'}`, '#save-message', 5000);
-      setTimeout(() => {
-        host.innerHTML = '';
-        host.classList.add('hidden');
-      }, 3000);
-    }
-  });
-
-  installBtn.addEventListener('click', () => {
-    updateProgressUI(5, formatUsbPhaseChecklist('erasing', 'opening COM chooser...'));
-    showMessage(`Open COM chooser for ${group?.version || 'local files'} and start flashing.`, '#save-message');
-  });
-
-  // Cleanup blob URLs after timeout
-  setTimeout(() => {
-    URL.revokeObjectURL(manifestUrl);
-    if (Array.isArray(localParts)) {
-      localParts.forEach((p) => {
-        if (p._blobUrl) URL.revokeObjectURL(p._blobUrl);
-      });
-    }
-  }, 120000);
-}
-
-function ensureProgressVisible(labelText) {
-  const progressContainer = document.getElementById('ota-progress-container');
-  if (progressContainer) progressContainer.classList.remove('hidden');
-  document.getElementById('ota-status-label').textContent = labelText;
-  document.getElementById('ota-progress-bar').style.width = '0%';
-  document.getElementById('ota-percent').textContent = '0%';
-}
-
-function updateProgressUI(percent, labelText) {
-  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
-  const progressContainer = document.getElementById('ota-progress-container');
-  const bar = document.getElementById('ota-progress-bar');
-  const text = document.getElementById('ota-percent');
-  const label = document.getElementById('ota-status-label');
-  if (progressContainer) progressContainer.classList.remove('hidden');
-  if (bar) bar.style.width = `${safePercent}%`;
-  if (text) text.textContent = `${Math.round(safePercent)}%`;
-  if (label && labelText) label.textContent = labelText;
-}
-
-function formatUsbPhaseChecklist(phase, suffix = '') {
-  const states = {
-    erasing: '[ ] erasing',
-    writing: '[ ] writing',
-    verifying: '[ ] verifying',
-  };
-
-  if (phase === 'erasing') {
-    states.erasing = '[>] erasing';
-  } else if (phase === 'writing') {
-    states.erasing = '[x] erasing';
-    states.writing = '[>] writing';
-  } else if (phase === 'verifying') {
-    states.erasing = '[x] erasing';
-    states.writing = '[x] writing';
-    states.verifying = '[>] verifying';
-  } else if (phase === 'finished') {
-    states.erasing = '[x] erasing';
-    states.writing = '[x] writing';
-    states.verifying = '[x] verifying';
-  }
-
-  return `USB flash: ${states.erasing}  ${states.writing}  ${states.verifying}${suffix ? ` | ${suffix}` : ''}`;
-}
-
-function updateUsbProgressFromState(detail) {
-  const state = String(detail?.state || '').toLowerCase();
-  const rawProgress = detail?.progress;
-
-  const getPhaseFromStateOrProgress = (progressValue) => {
-    if (state.includes('finished')) return 'finished';
-    if (state.includes('verif')) return 'verifying';
-    if (state.includes('writ') || state.includes('flash')) return 'writing';
-    if (state.includes('eras')) return 'erasing';
-    if (Number.isFinite(progressValue)) {
-      if (progressValue >= 85) return 'verifying';
-      if (progressValue >= 30) return 'writing';
-      if (progressValue >= 8) return 'erasing';
-    }
-    return usbFlashPhase;
-  };
-
-  const getUsbStateLabel = (phase) => {
-    if (phase === 'finished') return formatUsbPhaseChecklist('finished', 'rebooting into application...');
-    if (state.includes('connecting')) return formatUsbPhaseChecklist(phase, 'resetting ESP into bootloader...');
-    if (state.includes('prepar')) return formatUsbPhaseChecklist(phase, 'preparing installer...');
-    return formatUsbPhaseChecklist(phase);
-  };
-
-  if (Number.isFinite(rawProgress)) {
-    const normalized = rawProgress <= 1 ? rawProgress * 100 : rawProgress;
-    usbFlashProgressHint = Math.max(usbFlashProgressHint, normalized);
-    usbFlashPhase = getPhaseFromStateOrProgress(usbFlashProgressHint);
-    updateProgressUI(usbFlashProgressHint, getUsbStateLabel(usbFlashPhase));
-    return;
-  }
-
-  const hints = {
-    preparing: 10,
-    connecting: 15,
-    erasing: 30,
-    writing: 55,
-    flashing: 70,
-    verifying: 85,
-    finished: 100,
-  };
-
-  let target = usbFlashProgressHint;
-  for (const [key, value] of Object.entries(hints)) {
-    if (state.includes(key)) {
-      target = Math.max(target, value);
-      break;
-    }
-  }
-
-  if (target === usbFlashProgressHint && state && state !== 'finished') {
-    target = Math.min(95, usbFlashProgressHint + 5);
-  }
-
-  usbFlashProgressHint = target;
-  usbFlashPhase = getPhaseFromStateOrProgress(target);
-  updateProgressUI(target, getUsbStateLabel(usbFlashPhase));
 }
 
 function startOtaPlan(version, steps, options = {}) {
@@ -3729,7 +3537,7 @@ async function checkAllUpdates() {
           'Cannot fetch firmware from internet.<br><br>' +
           'Please connect <b>this device (PC / phone)</b> or <b>MLAstroRPA</b> (Wi-Fi STA) to the internet, then try again.' +
           (lastFetchError ? `<br><br><span style="color:var(--text-muted); font-size:12px;">ESP32: ${lastFetchError}</span>` : '') +
-          '<br><br>You can still update offline: press <b>Update firmware from local</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
+          '<br><br>You can still update offline: tick <b>Update via OTA</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
         );
       }
       const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 25000);
@@ -3756,8 +3564,14 @@ async function checkAllUpdates() {
           const useUsb = updateMode === 'com';
           const localMode = useUsb && Boolean(document.getElementById('update-local-offline')?.checked);
 
-          // Chế độ "Update firmware from local": đẩy file .bin có sẵn trên máy vào thiết bị qua Wi-Fi
-          if (updateMode === 'local') {
+          // Mode OTA + tick "Local update": đẩy file .bin có sẵn trên máy vào thiết bị qua Wi-Fi.
+          // Không tick: OTA theo version đang chọn trong danh sách.
+          if (updateMode === 'local' && document.getElementById('update-local-wifi-offline')?.checked) {
+            const pickedLocalFiles = collectLocalUpdateFiles('local-wifi-files');
+            if (!pickedLocalFiles || !(pickedLocalFiles.firmware || pickedLocalFiles.spiffs)) {
+              showUpdateModalError('Select local .bin files first (firmware.bin / spiffs.bin).');
+              return;
+            }
             startLocalWifiUpdate((message) => showUpdateModalError(message));
             return;
           }
