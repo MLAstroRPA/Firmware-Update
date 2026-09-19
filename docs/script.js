@@ -26,8 +26,12 @@ let csDataAlt = new Array(sgHistoryLength).fill(0);
 let otaPlan = null;
 let otaCurrentStepIndex = -1;
 let otaMode = 'ota';
-// Nguồn cài đặt OTA: true = TRÌNH DUYỆT tải .bin hộ rồi đẩy vào ESP (ESP không cần internet),
-// false = ESP tự tải qua STA (ESP phải có internet). Quyết định trong checkAllUpdates().
+// Nguồn cài đặt OTA (quyết định trong checkAllUpdates):
+//   espOtaOnline    = ESP32 có internet qua STA ⇒ ESP TỰ TẢI .bin (ƯU TIÊN — đường ổn định nhất,
+//                     không phụ thuộc điện thoại/tab; user chốt 2026-09-19).
+//   otaClientOnline = browser (PC/điện thoại) có internet ⇒ CHỈ dùng khi ESP không có internet
+//                     (browser tải .bin hộ rồi đẩy từng khối vào ESP qua /api/ota/upload).
+let espOtaOnline = false;
 let otaClientOnline = true;
 // Kích thước mỗi khối khi trình duyệt đẩy .bin vào ESP (POST /api/ota/upload)
 const BROWSER_OTA_CHUNK_SIZE = 64 * 1024;
@@ -2713,15 +2717,14 @@ function buildUpdateModalMarkup(catalog, options = {}) {
 
   // Cách A (client có internet) dùng proxy nên ESP32 khỏi cần internet; nếu client mất mạng thì
   // danh sách này do ESP32 tải hộ và ESP32 phải tự tải .bin ⇒ cần STA có internet.
-  const transportNote = offlineClient
-    ? `
-      <div style="margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
-        This device has no internet. The version list was fetched by the ESP32, and the ESP32 will download the firmware itself &mdash; it must be connected to a Wi-Fi network with internet (STA).
-      </div>
-    `
-    : `
+  // Ai tải .bin? MẶC ĐỊNH là ESP32 (tự tải qua STA) — chỉ khi ESP không có internet mới để browser
+  // tải hộ rồi đẩy sang. Ghi chú này nằm trong modal, hiện khi chọn "Update via OTA".
+  const espDownloads = Boolean(options.espOnline);
+  const transportNote = `
       <div id="ota-transport-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
-        OTA is downloaded by this browser and pushed to the device, so the ESP32 does not need its own internet connection. Keep this tab open until the update finishes &mdash; on a phone, keep the screen on and stay in the browser (switching apps or locking the screen pauses the upload; it will restart from the first block automatically).
+        ${espDownloads
+          ? 'MLAstroRPA downloads the update itself over its own Wi-Fi (STA) internet &mdash; keep the device connected to the router; you can close this tab after START.'
+          : 'This browser downloads the update and pushes it to the device (the ESP32 has no internet). Keep this tab open until the update finishes &mdash; on a phone, keep the screen on and stay in the browser (switching apps or locking the screen pauses the upload; it will restart from the first block automatically).'}
       </div>
     `;
 
@@ -3474,9 +3477,10 @@ async function renderUsbDashboardInModal(catalog) {
 
 function startOtaPlan(version, steps, options = {}) {
   otaMode = 'ota';
-  // useBrowserUpload: client có internet ⇒ trình duyệt tải .bin rồi đẩy vào ESP (cách A).
+  // useBrowserUpload = browser tải .bin rồi đẩy từng khối vào ESP. CHỈ dùng khi ESP32 KHÔNG có
+  // internet (espOtaOnline == false) — mặc định ESP tự tải qua STA (ưu tiên, user chốt 2026-09-19).
   // forceBrowserUpload: file .bin nằm trên máy client (blob URL) ⇒ ESP không tải được, buộc đi đường browser.
-  otaPlan = { version, steps, useBrowserUpload: options.forceBrowserUpload ? true : otaClientOnline };
+  otaPlan = { version, steps, useBrowserUpload: options.forceBrowserUpload ? true : !espOtaOnline };
   otaCurrentStepIndex = -1;
   startNextPlannedOtaStep();
 }
@@ -3531,6 +3535,8 @@ async function runBrowserOtaStep(step, stepLabel) {
     return;
   }
 
+  let firstFailure = null; // lý do GỐC — các lần retry có thể báo lỗi phụ ("first block missing")
+
   for (let attempt = 1; attempt <= BROWSER_OTA_MAX_ATTEMPTS; attempt++) {
     let failure = null;
 
@@ -3577,13 +3583,14 @@ async function runBrowserOtaStep(step, stepLabel) {
     }
 
     if (!failure) return; // bước này xong
+    if (!firstFailure) firstFailure = failure;
 
     if (attempt < BROWSER_OTA_MAX_ATTEMPTS) {
       showOtaInstallOverlay(`Retrying ${step.type} (${attempt + 1}/${BROWSER_OTA_MAX_ATTEMPTS})...`, 0);
       continue;
     }
 
-    failBrowserOtaStep(`${step.type}: ${failure}`);
+    failBrowserOtaStep(`${step.type}: ${firstFailure} (after ${attempt} attempts)`);
     return;
   }
 }
@@ -3605,28 +3612,36 @@ async function checkAllUpdates() {
   try {
     const backendAvailable = await waitForBackendStatus(1200);
 
-    // Danh sách version lấy từ meta.json (raw.githubusercontent.com). KHÔNG dùng api.github.com vì
-    // endpoint đó hay trả 403 (rate-limit) dù máy vẫn có internet ⇒ trước đây bị hiểu nhầm là mất mạng.
+    // Danh sách version lấy từ meta.json trên raw.githubusercontent.com (KHÔNG dùng api.github.com
+    // vì endpoint đó hay trả 403 rate-limit dù máy vẫn có internet).
+    // ƯU TIÊN: nhờ ESP32 tải trước (ESP có internet qua STA ⇒ ESP cũng sẽ tự tải .bin, đường ổn định
+    // nhất, không phụ thuộc điện thoại/tab). Chỉ khi ESP không có internet mới dùng internet của client.
     let meta = {};
-    const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
-    otaClientOnline = Boolean(directMeta && typeof directMeta === 'object' && Object.keys(directMeta).length);
+    const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 12000);
+    espOtaOnline = Boolean(proxiedMeta && typeof proxiedMeta === 'object' && Object.keys(proxiedMeta).length);
 
-    if (otaClientOnline) {
-      meta = directMeta;
+    if (espOtaOnline) {
+      meta = proxiedMeta;
+      // ESP tự lo được ⇒ biết ngay danh sách. Còn client có internet hay không thì dò nền (không chặn
+      // UI) vì vài chỗ khác (Beta UI / USB Serial) cần biết browser có mạng.
+      fetchJsonWithTimeout(metaUrl, 6000).then((direct) => {
+        otaClientOnline = Boolean(direct && typeof direct === 'object' && Object.keys(direct).length);
+        if (typeof refreshUsbContextWarning === 'function') refreshUsbContextWarning();
+      }).catch(() => { otaClientOnline = false; });
     } else {
-      // 2) Client không có internet → nhờ ESP32 tải hộ meta.json (ESP32 phải có internet qua STA).
-      //    Khi đó .bin cũng do ESP32 tự tải (browser không có mạng để đẩy hộ).
-      const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 25000);
-      if (!proxiedMeta || typeof proxiedMeta !== 'object' || !Object.keys(proxiedMeta).length) {
-        // Cả client lẫn ESP32 đều không lấy được danh sách ⇒ nhắc người dùng cấp internet cho 1 trong 2.
+      // ESP không có internet ⇒ fallback sang internet của client (browser tải .bin rồi đẩy sang ESP).
+      const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
+      otaClientOnline = Boolean(directMeta && typeof directMeta === 'object' && Object.keys(directMeta).length);
+      if (!otaClientOnline) {
+        // Cả hai phía đều không lấy được danh sách ⇒ nhắc người dùng cấp internet cho 1 trong 2.
         throw new Error(
           'Cannot fetch firmware from internet.<br><br>' +
-          'Please connect <b>this device (PC / phone)</b> or <b>MLAstroRPA</b> (Wi-Fi STA) to the internet, then try again.' +
+          'Please connect <b>MLAstroRPA</b> (Wi-Fi STA) or <b>this device (PC / phone)</b> to the internet, then try again.' +
           (lastFetchError ? `<br><br><span style="color:var(--text-muted); font-size:12px;">ESP32: ${lastFetchError}</span>` : '') +
           '<br><br>You can still update offline: tick <b>Update via OTA</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
         );
       }
-      meta = proxiedMeta;
+      meta = directMeta;
     }
 
     const catalog = buildUpdateCatalog(null, meta);
@@ -3637,7 +3652,7 @@ async function checkAllUpdates() {
 
     const forceUsb = !backendAvailable;
 
-    showModal('Available Updates', buildUpdateModalMarkup(catalog, { forceUsb, offlineClient: !otaClientOnline }), [
+    showModal('Available Updates', buildUpdateModalMarkup(catalog, { forceUsb, espOnline: espOtaOnline, offlineClient: !otaClientOnline }), [
       {
         id: 'update-primary-action-btn',
         text: 'START UPDATE',
@@ -3680,9 +3695,9 @@ async function checkAllUpdates() {
             return;
           }
 
-          // Client không có internet ⇒ quay về cách cũ (ESP tự tải .bin) ⇒ ESP BẮT BUỘC có internet.
-          if (!otaClientOnline && currentStaQual < 2) {
-            showUpdateModalError('This device has no internet and the ESP32 does not have internet either (STA is not connected). Connect the ESP32 to a Wi-Fi network with internet, or use the USB Serial update.');
+          // Không bên nào có internet ⇒ không thể OTA (còn USB Serial / file .bin có sẵn trên máy).
+          if (!espOtaOnline && !otaClientOnline) {
+            showUpdateModalError('Neither MLAstroRPA (ESP32) nor this device (PC/phone) has internet. Connect one of them, or use "Update via COM port" / a local .bin file.');
             return;
           }
 
