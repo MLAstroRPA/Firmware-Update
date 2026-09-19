@@ -350,7 +350,7 @@ Use the `.bat` scripts from the firmware repository:
 Flash address mapping:
 
 - Firmware: `0x10000`
-- SPIFFS: `0x3a0000`
+- SPIFFS: `0x398000`
 - OTA boot data (erase before firmware flash): `0xE000`, size `0x2000`
 
 ### PlatformIO CLI (developers)

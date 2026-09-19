@@ -43,7 +43,7 @@ const FLASH_OFFSETS = {
   bootloader: '0x1000',
   partitions: '0x8000',
   firmware: '0x10000',
-  spiffs: '0x3a0000',
+  spiffs: '0x398000',
 };
 const FLASH_KIND_ORDER = ['bootloader', 'partitions', 'firmware', 'spiffs'];
 
