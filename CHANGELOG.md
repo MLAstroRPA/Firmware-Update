@@ -4,6 +4,20 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.8.0] - 2026-09-19
+
+- Added — OTA: Web UI downloads the `firmware` / `spiffs` `.bin` with the browser's own internet and pushes it to the device (`POST /api/ota/upload`, 64 KB blocks, real progress) — works while the ESP32 has no internet (AP-only, STA lost)
+
+- Added — OTA: `GET /api/ota/catalog` lets the ESP32 fetch the GitHub version list / `meta.json` for a client that has no internet (needs ESP32 STA internet)
+
+- Changed — Web UI / OTA: the update window shows which side provides the internet (browser vs ESP32) and blocks START when neither side has internet
+
+- Changed — Web UI / OTA: failed update check now reads "Cannot fetch firmware from internet" and offers **Update from local .bin** + **Retry** instead of a plain error
+
+- Added — Web UI / OTA: **Update from local .bin over Wi-Fi** (offline, no HTTPS, no USB cable) — needed because Web Serial is blocked on the HTTP device page and the Beta UI page needs internet; bootloader/partitions still require USB
+
+---
+
 ## [1.7.0] - 2026-09-19
 
 - Added — Network: STA connection quality (`WQu` / `sta_qual`: 0 none / 1 router-only / 2 internet, TCP-probe every 10 s) + per-client AP/STA link in `handshakeResult` (`link`) + live STA IP (`sta_ip`)

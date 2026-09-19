@@ -26,6 +26,11 @@ let csDataAlt = new Array(sgHistoryLength).fill(0);
 let otaPlan = null;
 let otaCurrentStepIndex = -1;
 let otaMode = 'ota';
+// Nguồn cài đặt OTA: true = TRÌNH DUYỆT tải .bin hộ rồi đẩy vào ESP (ESP không cần internet),
+// false = ESP tự tải qua STA (ESP phải có internet). Quyết định trong checkAllUpdates().
+let otaClientOnline = true;
+// Kích thước mỗi khối khi trình duyệt đẩy .bin vào ESP (POST /api/ota/upload)
+const BROWSER_OTA_CHUNK_SIZE = 64 * 1024;
 let espWebToolsLoader = null;
 let usbFlashProgressHint = 0;
 let usbFlashPhase = 'preparing';
@@ -47,6 +52,24 @@ function extractVersion(text) {
   if (!text) return "unknown";
   const match = text.match(/\d+\.\d+\.\d+/);
   return match ? match[0].trim() : "unknown";
+}
+
+// Client đang mở Web UI là điện thoại/máy tính bảng?
+// Web Serial (COM port) CHỈ có trên Chrome/Edge desktop ⇒ máy mobile KHÔNG được chọn đường COM port.
+function isMobileClient() {
+  const uaData = navigator.userAgentData;
+  if (uaData && typeof uaData.mobile === 'boolean') return uaData.mobile;
+  return /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
+}
+
+// Chế độ cài trong modal update — dùng 2 CHECKBOX nhưng LOẠI TRỪ NHAU (tick ô này thì bỏ tick ô kia):
+//   'com'   = Update via COM port (ESP Web Tools)
+//   'local' = Update firmware from local (đẩy file .bin qua Wi-Fi)
+//   'none'  = không tick ô nào ⇒ cài version đang chọn (OTA qua mạng)
+function getUpdateModeChoice() {
+  if (document.getElementById('update-via-usb')?.checked) return 'com';
+  if (document.getElementById('update-local-wifi-check')?.checked) return 'local';
+  return 'none';
 }
 
 
@@ -336,6 +359,37 @@ function waitForBackendStatus(timeoutMs = 1200) {
       }
     }, 100);
   });
+}
+
+// Lý do thất bại gần nhất của fetchJsonWithTimeout (hiện kèm trong thông báo "No Internet")
+let lastFetchError = '';
+
+// fetch + parse JSON, hết thời gian/thất bại ⇒ trả null (dùng để dò internet: client trước,
+// ESP sau — ESP phục vụ /api/ota/catalog khi chính client không có internet)
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const body = await response.json();
+        if (body && body.message) detail = body.message;
+      } catch (ignored) {
+        // body không phải JSON — dùng mã HTTP
+      }
+      lastFetchError = detail || `HTTP ${response.status}`;
+      return null;
+    }
+    lastFetchError = '';
+    return await response.json();
+  } catch (error) {
+    lastFetchError = error.name === 'AbortError' ? 'timeout' : error.message;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function connectWebSocket() {
@@ -2631,21 +2685,58 @@ function buildVersionOptionMarkup(group, checked) {
 
 function buildUpdateModalMarkup(catalog, options = {}) {
   const forceUsb = Boolean(options.forceUsb);
+  const offlineClient = Boolean(options.offlineClient);
   const optionsHtml = catalog.versions.map((group, index) => buildVersionOptionMarkup(group, index === 0)).join('');
   const hasExtras = Boolean(catalog.extras.bootloader || catalog.extras.partitions);
 
+  // Cách A (client có internet) dùng proxy nên ESP32 khỏi cần internet; nếu client mất mạng thì
+  // danh sách này do ESP32 tải hộ và ESP32 phải tự tải .bin ⇒ cần STA có internet.
+  const transportNote = offlineClient
+    ? `
+      <div style="margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
+        This device has no internet. The version list was fetched by the ESP32, and the ESP32 will download the firmware itself &mdash; it must be connected to a Wi-Fi network with internet (STA).
+      </div>
+    `
+    : `
+      <div style="margin-bottom:12px; padding:10px; border:1px solid var(--border); border-radius:6px; font-size:12px; color:var(--text-muted);">
+        OTA is downloaded by this browser and pushed to the device, so the ESP32 does not need its own internet connection. Keep this tab open until the update finishes.
+      </div>
+    `;
+
   return `
+    ${transportNote}
     ${forceUsb ? `
       <div style="margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
-        Backend is not connected. USB Serial update has been selected automatically. OTA is unavailable right now.
+        ${isMobileClient()
+          ? '<b>Device is not connected.</b> Reload this page and try again &mdash; Wi-Fi update needs a live connection to the device.'
+          : 'Backend is not connected. USB Serial update has been selected automatically. OTA is unavailable right now.'}
       </div>
     ` : ''}
     <div id="online-version-list" style="max-height: 280px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">${optionsHtml}</div>
     <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:grid; gap:10px;">
-      <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; width:100%;">
-        <input type="checkbox" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
-        <span>Update via COM port (ESP Web Tools)</span>
-      </label>
+      <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center;">
+        ${isMobileClient() ? '' : `
+        <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
+          <span>Update via COM port (ESP Web Tools)</span>
+        </label>`}
+        <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="update-local-wifi-check">
+          <span>Update firmware from local</span>
+        </label>
+      </div>
+      ${isMobileClient() ? `
+      <div style="font-size:11px; color:var(--text-muted);">
+        COM port update (Web Serial) is not available on phones/tablets &mdash; use <b>Update firmware from local</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
+      </div>` : ''}
+      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+        <div style="font-size:11px; color:var(--text-muted);">
+          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
+        </div>
+        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
+      </div>
       <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
         <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
           ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
@@ -2666,11 +2757,19 @@ function buildUpdateModalMarkup(catalog, options = {}) {
           <div style="font-size:12px; color:var(--danger); margin-bottom:8px;">
             This page is running in an insecure context (likely ESP HTTP IP). Web Serial is blocked here.
           </div>
-          <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
-            Open the Beta UI page to continue the USB Serial update flow:
-            <div id="beta-ui-target-url" style="margin-top:4px; word-break:break-all;"></div>
+          <div id="usb-nonet-warning" style="display:none; border:1px dashed var(--warning); border-radius:6px; padding:8px; margin-bottom:8px; font-size:12px; color:var(--warning);">
+            This device has no internet, can not use this progress/session/function.
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+              The COM port update uses the Beta UI page (HTTPS), which needs internet on this device. Use <b>Update firmware from local</b> (Wi-Fi) instead, or connect this device to the internet.
+            </div>
           </div>
-          <button type="button" class="btn btn-secondary btn-small" id="open-beta-ui-page">Open Beta UI</button>
+          <div id="beta-ui-note">
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+              For a <b>full flash</b> (bootloader + partitions + firmware + spiffs) open the Beta UI page in a tab &mdash; it needs internet on this device:
+              <div id="beta-ui-target-url" style="margin-top:4px; word-break:break-all;"></div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small" id="open-beta-ui-page">Open Beta UI</button>
+          </div>
         </div>
         <div id="update-modal-usb-host" class="hidden"></div>
       </div>
@@ -2701,8 +2800,8 @@ function detectFlashKindFromName(filename) {
   return '';
 }
 
-function collectLocalUpdateFiles() {
-  const input = document.getElementById('local-update-files');
+function collectLocalUpdateFiles(inputId = 'local-update-files') {
+  const input = document.getElementById(inputId);
   const selected = {
     bootloader: null,
     partitions: null,
@@ -2759,11 +2858,127 @@ function getSelectedLocalParts() {
   return parts;
 }
 
+// ===== UPDATE TỪ FILE .BIN CÓ SẴN TRÊN MÁY — QUA WI-FI =====
+// Vì sao cần: Web Serial (ESP Web Tools) chỉ chạy ở secure context (HTTPS/localhost), mà Web UI
+// của thiết bị lại là HTTP (http://192.168.4.1) ⇒ khi client KHÔNG có internet thì không mở được
+// trang Beta UI (GitHub Pages) để flash bằng COM port. Đường này KHÔNG cần HTTPS: browser đọc
+// file .bin local rồi POST sang firmware qua /api/ota/upload (1.8.0+) — không internet, không cáp.
+function renderLocalWifiFileList() {
+  const container = document.getElementById('local-wifi-file-list');
+  if (!container) return;
+
+  const filesByKind = collectLocalUpdateFiles('local-wifi-files');
+  const items = [];
+  ['firmware', 'spiffs'].forEach((kind) => {
+    const file = filesByKind[kind];
+    if (!file) return;
+    items.push(`
+      <label class="checkbox-label" style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <input type="checkbox" id="local-wifi-kind-${kind}" checked>
+        <span style="font-size:12px;"><strong>${kind}</strong>: ${file.name} <span style="color:var(--text-muted);">(${(file.size / 1024).toFixed(1)} KB)</span></span>
+      </label>
+    `);
+  });
+
+  if (filesByKind.bootloader || filesByKind.partitions) {
+    items.push('<div style="font-size:11px; color:var(--warning);">bootloader / partitions cannot be written over Wi-Fi (the running firmware cannot reflash the bootloader or the partition table) — use the Multi-ESP-Flasher tool or the Beta UI over USB.</div>');
+  }
+
+  container.innerHTML = items.length
+    ? items.join('')
+    : '<div style="font-size:12px; color:var(--warning);">No recognized file found. Select the .bin files named firmware / spiffs.</div>';
+}
+
+function showLocalWifiUpdateModal() {
+  showModal('Update Firmware From Local', `
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+      Flash <b>firmware</b> and/or <b>spiffs</b> straight from this device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable.
+      <br>Use the official <b>firmware x.y.z.bin</b> / <b>spiffs x.y.z.bin</b> of a release you already have on this device.
+    </div>
+    <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+    <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+    <div id="local-wifi-file-list" style="display:grid; gap:8px; margin-top:12px;"></div>
+    <div id="local-wifi-error" style="display:none; color:var(--danger); font-size:12px; margin-top:10px;"></div>
+  `, [
+    { text: 'START UPDATE', class: 'btn-danger', closeOnClick: false, callback: startLocalWifiUpdate },
+    { text: 'Cancel' },
+  ]);
+
+  const pick = document.getElementById('pick-local-wifi-files');
+  const input = document.getElementById('local-wifi-files');
+  if (pick && input) {
+    pick.addEventListener('click', () => input.click());
+    input.addEventListener('change', renderLocalWifiFileList);
+  }
+}
+
+// reportError: hàm báo lỗi. Mặc định hiện ở #local-wifi-error (modal "Update Firmware From Local");
+// khi chạy trong modal Available Updates thì truyền showUpdateModalError để hiện ở #update-modal-error.
+function startLocalWifiUpdate(reportError) {
+  const errorEl = document.getElementById('local-wifi-error');
+  const fail = typeof reportError === 'function'
+    ? reportError
+    : (message) => {
+        if (!errorEl) return;
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+      };
+
+  if (!hasBackendConnection()) {
+    fail('Device is not connected (WebSocket is down). Reload this page and try again.');
+    return;
+  }
+
+  const filesByKind = collectLocalUpdateFiles('local-wifi-files');
+  const steps = [];
+  ['firmware', 'spiffs'].forEach((kind) => {
+    const file = filesByKind[kind];
+    const enabled = document.getElementById(`local-wifi-kind-${kind}`)?.checked;
+    if (!file || !enabled) return;
+    steps.push({ type: kind, url: URL.createObjectURL(file), filename: file.name, rebootAfter: false });
+  });
+
+  if (!steps.length) {
+    fail('Select at least one firmware or spiffs .bin file.');
+    return;
+  }
+  steps[steps.length - 1].rebootAfter = true;
+
+  hideModal();
+  startOtaPlan('local', steps, { forceBrowserUpload: true });
+}
+
 function getPublicUsbUpdateUrl() {
   // Trang này chạy HTTP (insecure) nên Web Serial bị chặn — nút "Open Beta UI" mở trang Beta HTTPS.
   // Kèm cờ ?updates=1 để trang Beta tự chạy kiểm tra cập nhật và MỞ SẴN modal "Available Updates"
   // (trang Beta đọc cờ này trong url lúc load, xem HardwareUpdate/docs/script.js).
   return PUBLIC_USB_UPDATE_URL + (PUBLIC_USB_UPDATE_URL.indexOf('?') >= 0 ? '&' : '?') + 'updates=1';
+}
+
+// Mở trang Beta UI (HTTPS — nơi Web Serial/COM port chạy được). Dùng window name cố định nên
+// các lần sau trình duyệt TÁI SỬ DỤNG đúng tab đó thay vì mở thêm tab mới.
+function openBetaUiTab() {
+  window.open(getPublicUsbUpdateUrl(), 'mlastro_beta_ui');
+}
+
+// Flash qua COM xong ở tab Beta UI (tab do trang thiết bị mở) ⇒ tab đó tự đóng.
+// Lưu ý: window.close() chỉ chạy với tab do script mở (có window.opener) — tab người dùng tự
+// mở sẽ không tự đóng được, khi đó để người dùng tự đóng.
+function closeSelfIfOpenedFromDevice() {
+  let openedByScript = false;
+  try {
+    openedByScript = Boolean(window.opener) && !window.opener.closed;
+  } catch (error) {
+    openedByScript = false;
+  }
+  if (!openedByScript) return;
+  setTimeout(() => {
+    try {
+      window.close();
+    } catch (error) {
+      // Trình duyệt chặn close ⇒ để người dùng tự đóng tab
+    }
+  }, 3000);
 }
 
 function refreshUsbContextWarning() {
@@ -2775,21 +2990,29 @@ function refreshUsbContextWarning() {
 
   if (!insecureContext) return;
 
+  // Client KHÔNG có internet ⇒ không thể mở Beta UI (GitHub Pages) ⇒ ẩn, hiện thông báo thay thế.
+  const offline = !otaClientOnline;
+  const betaNoteEl = document.getElementById('beta-ui-note');
+  const noNetEl = document.getElementById('usb-nonet-warning');
+  if (betaNoteEl) betaNoteEl.style.display = offline ? 'none' : 'block';
+  if (noNetEl) noNetEl.style.display = offline ? 'block' : 'none';
+  if (offline) return;
+
   const targetUrl = getPublicUsbUpdateUrl();
   const urlEl = document.getElementById('beta-ui-target-url');
   if (urlEl) urlEl.textContent = targetUrl;
 
   const openBtn = document.getElementById('open-beta-ui-page');
   if (openBtn) {
-    openBtn.onclick = () => {
-      window.open(targetUrl, '_blank', 'noopener');
-    };
+    openBtn.onclick = () => openBetaUiTab();
   }
 }
 
 function wireUpdateModalInteractions(catalog, options = {}) {
   const forceUsb = Boolean(options.forceUsb);
-  const usbCheckbox = document.getElementById('update-via-usb');
+  const comCheckbox = document.getElementById('update-via-usb');            // null trên điện thoại
+  const localWifiCheckbox = document.getElementById('update-local-wifi-check');
+  const localWifiOptions = document.getElementById('local-wifi-options');
   const usbOptions = document.getElementById('usb-upload-options');
   const localCheckbox = document.getElementById('update-local-offline');
   const localOptions = document.getElementById('local-update-options');
@@ -2797,72 +3020,90 @@ function wireUpdateModalInteractions(catalog, options = {}) {
   const extrasBlock = document.getElementById('usb-upload-extra-options');
   const pickBtn = document.getElementById('pick-local-update-files');
   const fileInput = document.getElementById('local-update-files');
+  const localWifiPickBtn = document.getElementById('pick-local-wifi-files');
+  const localWifiFileInput = document.getElementById('local-wifi-files');
   const primaryActionBtn = document.getElementById('update-primary-action-btn');
   const versionInputs = Array.from(document.querySelectorAll('input[name="update-version"]'));
   const bootloaderCheckbox = document.getElementById('include-bootloader');
   const partitionsCheckbox = document.getElementById('include-partitions');
-  if (!usbCheckbox || !usbOptions || !localCheckbox || !localOptions || !onlineList) return;
+  if (!usbOptions || !localCheckbox || !localOptions || !onlineList || !primaryActionBtn) return;
+
+  // Chế độ cài: 2 checkbox loại trừ nhau, cho phép cả hai đều trống (= cài version đang chọn)
+  const getUpdateMode = () => getUpdateModeChoice();
 
   const refreshPrimaryActionLabel = async () => {
-    if (!primaryActionBtn) return;
-    primaryActionBtn.textContent = 'START UPDATE';
-    primaryActionBtn.style.display = usbCheckbox.checked ? 'none' : '';
-    if (usbCheckbox.checked) {
+    const mode = getUpdateMode();
+    primaryActionBtn.textContent = mode === 'local' ? 'START UPDATE (Wi-Fi)' : 'START UPDATE';
+    primaryActionBtn.style.display = mode === 'com' ? 'none' : '';
+    if (mode === 'com') {
       await renderUsbDashboardInModal(catalog);
     } else {
       clearUsbDashboardHost(document.getElementById('update-modal-usb-host'));
     }
   };
 
-  if (forceUsb) {
-    usbCheckbox.checked = true;
-    usbOptions.classList.remove('hidden');
-    usbOptions.style.display = 'grid';
-    refreshUsbContextWarning();
-  }
-
-  usbCheckbox.addEventListener('change', async (e) => {
-    clearUpdateModalError();
-    if (!e.target.checked && forceUsb) {
-      e.target.checked = true;
-      showUpdateModalError('Backend is not connected. USB Serial update is required, so this option cannot be turned off right now.');
-      await refreshPrimaryActionLabel();
-      return;
+  const applyUpdateMode = async () => {
+    const mode = getUpdateMode();
+    usbOptions.classList.toggle('hidden', mode !== 'com');
+    usbOptions.style.display = mode === 'com' ? 'grid' : 'none';
+    if (localWifiOptions) {
+      localWifiOptions.classList.toggle('hidden', mode !== 'local');
+      localWifiOptions.style.display = mode === 'local' ? 'grid' : 'none';
     }
-
-    if (e.target.checked) {
-      usbOptions.classList.remove('hidden');
-      usbOptions.style.display = 'grid';
+    onlineList.style.display = mode === 'none' ? 'block' : 'none';
+    if (mode === 'com') {
       refreshUsbContextWarning();
       // Preload web component early to keep CONNECT flow snappy.
       ensureEspWebToolsLoaded().catch((error) => console.warn('ESP Web Tools preload failed:', error));
-    } else {
-      usbOptions.classList.add('hidden');
-      usbOptions.style.display = 'none';
-      // Reset local sub-mode when USB is unchecked
-      if (localCheckbox && localCheckbox.checked) {
-        localCheckbox.checked = false;
-        localOptions.classList.add('hidden');
-        localOptions.style.display = 'none';
-        if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
-      }
-      onlineList.style.display = 'block';
     }
     await refreshPrimaryActionLabel();
-  });
+  };
+
+  if (comCheckbox) {
+    if (forceUsb) comCheckbox.checked = true;
+    comCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      if (comCheckbox.checked) {
+        if (localWifiCheckbox) localWifiCheckbox.checked = false;   // loại trừ nhau
+        // Trang thiết bị chạy HTTP ⇒ Web Serial bị chặn ⇒ MỞ TAB Beta UI (HTTPS, ?updates=1)
+        // để cài qua COM port ở đó (nhúng iframe KHÔNG chạy được vì secure-context kế thừa từ cha).
+        if (!window.isSecureContext) {
+          if (otaClientOnline) {
+            openBetaUiTab();
+          } else {
+            showUpdateModalError('This device has no internet, can not use this progress/session/function. Use Update firmware from local (Wi-Fi) instead.');
+          }
+        }
+        applyUpdateMode();
+        return;
+      }
+      if (forceUsb) {
+        comCheckbox.checked = true;
+        showUpdateModalError('Backend is not connected. USB Serial update is required, so this option cannot be turned off right now.');
+        return;
+      }
+      applyUpdateMode();
+    });
+  }
+
+  if (localWifiCheckbox) {
+    localWifiCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      if (localWifiCheckbox.checked && comCheckbox) comCheckbox.checked = false;  // loại trừ nhau
+      applyUpdateMode();
+    });
+  }
 
   localCheckbox.addEventListener('change', (e) => {
     clearUpdateModalError();
     if (e.target.checked) {
       localOptions.classList.remove('hidden');
       localOptions.style.display = 'grid';
-      onlineList.style.display = 'none';
       // Hide bootloader/partitions extras — local mode manages its own files
       if (extrasBlock) extrasBlock.style.display = 'none';
     } else {
       localOptions.classList.add('hidden');
       localOptions.style.display = 'none';
-      onlineList.style.display = 'block';
       // Restore extras block if it has content
       if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
     }
@@ -2877,6 +3118,12 @@ function wireUpdateModalInteractions(catalog, options = {}) {
       renderLocalUpdateFileList();
       await refreshPrimaryActionLabel();
     });
+  }
+
+  // Chế độ "Update firmware from local": chọn file .bin trên máy để đẩy sang thiết bị qua Wi-Fi
+  if (localWifiPickBtn && localWifiFileInput) {
+    localWifiPickBtn.addEventListener('click', () => localWifiFileInput.click());
+    localWifiFileInput.addEventListener('change', () => renderLocalWifiFileList());
   }
 
   versionInputs.forEach((input) => {
@@ -2897,7 +3144,7 @@ function wireUpdateModalInteractions(catalog, options = {}) {
     });
   }
 
-  refreshPrimaryActionLabel();
+  applyUpdateMode();
 }
 
 function isGroupAlreadyInstalled(group) {
@@ -2994,15 +3241,21 @@ function clearUsbDashboardHost(host) {
 
 async function renderUsbDashboardInModal(catalog) {
   const host = document.getElementById('update-modal-usb-host');
-  const usbCheckbox = document.getElementById('update-via-usb');
+  const selectedMode = getUpdateModeChoice();
   const localCheckbox = document.getElementById('update-local-offline');
-  if (!host || !usbCheckbox?.checked) {
+  if (!host || selectedMode !== 'com') {
     clearUsbDashboardHost(host);
     return;
   }
 
   releaseActiveUsbArtifacts();
   host.classList.remove('hidden');
+
+  // Client không có internet ⇒ ESP Web Tools (tải từ unpkg) và trang Beta UI đều không dùng được
+  if (!otaClientOnline) {
+    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">This device has no internet, can not use this progress/session/function. Use <b>Update firmware from local</b> (Wi-Fi), or connect this device to the internet.</div></div>';
+    return;
+  }
 
   if (!hasWebSerialSupport()) {
     host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Web Serial unavailable here. Use Chrome/Edge on HTTPS or localhost.</div></div>';
@@ -3076,6 +3329,7 @@ async function renderUsbDashboardInModal(catalog) {
     if (detail.state === 'finished') {
       usbFlashPhase = 'finished';
       showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
+      closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng
       setTimeout(() => {
         clearUsbDashboardHost(host);
         hideModal();
@@ -3153,6 +3407,7 @@ async function startUsbEspWebToolsInstall(group, catalog, localParts = null) {
       usbFlashPhase = 'finished';
       updateProgressUI(100, formatUsbPhaseChecklist('finished', 'rebooting into application...'));
       showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
+      closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng
       setTimeout(() => {
         host.innerHTML = '';
         host.classList.add('hidden');
@@ -3287,9 +3542,11 @@ function updateUsbProgressFromState(detail) {
   updateProgressUI(target, getUsbStateLabel(usbFlashPhase));
 }
 
-function startOtaPlan(version, steps) {
+function startOtaPlan(version, steps, options = {}) {
   otaMode = 'ota';
-  otaPlan = { version, steps };
+  // useBrowserUpload: client có internet ⇒ trình duyệt tải .bin rồi đẩy vào ESP (cách A).
+  // forceBrowserUpload: file .bin nằm trên máy client (blob URL) ⇒ ESP không tải được, buộc đi đường browser.
+  otaPlan = { version, steps, useBrowserUpload: options.forceBrowserUpload ? true : otaClientOnline };
   otaCurrentStepIndex = -1;
   startNextPlannedOtaStep();
 }
@@ -3304,8 +3561,74 @@ function startNextPlannedOtaStep() {
     return;
   }
 
-  showOtaInstallOverlay(`Installing ${step.type} (${otaCurrentStepIndex + 1}/${otaPlan.steps.length})...`, 0);
+  const stepLabel = `Installing ${step.type} (${otaCurrentStepIndex + 1}/${otaPlan.steps.length})...`;
+
+  // Cách A: trình duyệt (client) tải .bin hộ rồi POST từng khối vào ESP ⇒ ESP không cần internet.
+  if (otaPlan.useBrowserUpload) {
+    showOtaInstallOverlay(`Downloading ${step.type}...`, 0);
+    runBrowserOtaStep(step, stepLabel);
+    return;
+  }
+
+  showOtaInstallOverlay(stepLabel, 0);
   sendCommand('otaUpdate', { type: step.type, url: step.url, reboot_after: step.rebootAfter });
+}
+
+// Cách A: tải .bin bằng internet của CHÍNH client rồi đẩy sang ESP qua POST /api/ota/upload.
+// Tiến độ trong lúc gửi lấy từ phía browser; mốc 100% và việc chuyển bước vẫn do ESP báo qua
+// WebSocket (ota_progress / ota_done) để dùng chung luồng UI với cách ESP tự tải.
+async function runBrowserOtaStep(step, stepLabel) {
+  let buffer;
+  try {
+    const response = await fetch(step.url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
+    buffer = await response.arrayBuffer();
+  } catch (error) {
+    failBrowserOtaStep(`${step.type}: ${error.message}`);
+    return;
+  }
+
+  const total = buffer.byteLength;
+  if (!total) {
+    failBrowserOtaStep(`${step.type}: the downloaded file is empty`);
+    return;
+  }
+
+  for (let offset = 0; offset < total; offset += BROWSER_OTA_CHUNK_SIZE) {
+    const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
+    const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
+        body: slice,
+      });
+      if (!response.ok) {
+        let message = `device rejected the block (HTTP ${response.status})`;
+        try {
+          const detail = await response.json();
+          if (detail && detail.message) message = detail.message;
+        } catch (ignored) {
+          // body không phải JSON — giữ thông báo mặc định
+        }
+        throw new Error(message);
+      }
+    } catch (error) {
+      failBrowserOtaStep(`${step.type}: ${error.message}`);
+      return;
+    }
+
+    const percent = Math.round(((offset + slice.byteLength) * 100) / total);
+    updateOtaInstallOverlay(percent, stepLabel);
+  }
+}
+
+function failBrowserOtaStep(reason) {
+  otaPlan = null;
+  otaCurrentStepIndex = -1;
+  hideOtaInstallOverlay();
+  showModal('OTA Failed', `${reason}<br><br>Keep this tab open during the whole update. You can also update over USB Serial (tick <b>Update via COM port</b> in the update window).`, [{ text: 'OK' }]);
 }
 
 async function checkAllUpdates() {
@@ -3314,21 +3637,34 @@ async function checkAllUpdates() {
   const apiUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/`;
   const metaUrl = `https://raw.githubusercontent.com/${repoOwner}/${repoName}/main/meta.json`;
 
-  showModal('Checking Updates', `<div class="wifi-scanning">Connecting to GitHub...</div>`);
+  showModal('Checking Updates', `<div class="wifi-scanning">Fetching firmware list...</div>`);
 
   try {
-    const [response, metaResp, backendAvailable] = await Promise.all([fetch(apiUrl), fetch(metaUrl), waitForBackendStatus(1200)]);
-    if (!response.ok) throw new Error('Failed to reach GitHub');
+    const backendAvailable = await waitForBackendStatus(1200);
 
-    const files = await response.json();
+    // 1) Ưu tiên internet của CHÍNH client (nhanh, không tốn tài nguyên ESP32).
+    let files = await fetchJsonWithTimeout(apiUrl, 6000);
     let meta = {};
-    if (metaResp.ok) {
-      try {
-        const parsed = await metaResp.json();
-        if (parsed && typeof parsed === 'object') meta = parsed;
-      } catch (error) {
-        console.warn('meta.json parse failed, continue without description', error);
+    otaClientOnline = Boolean(files);
+
+    if (otaClientOnline) {
+      const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
+      if (directMeta && typeof directMeta === 'object') meta = directMeta;
+    } else {
+      // 2) Client không có internet → nhờ ESP32 tải hộ danh sách (ESP32 phải có internet qua STA).
+      //    Khi đó .bin cũng do ESP32 tự tải (browser không có mạng để đẩy hộ).
+      files = await fetchJsonWithTimeout('/api/ota/catalog?what=files', 25000);
+      if (!files) {
+        // Cả client lẫn ESP32 đều không lấy được danh sách ⇒ nhắc người dùng cấp internet cho 1 trong 2.
+        throw new Error(
+          'Cannot fetch firmware from internet.<br><br>' +
+          'Please connect <b>this device (PC / phone)</b> or <b>MLAstroRPA</b> (Wi-Fi STA) to the internet, then try again.' +
+          (lastFetchError ? `<br><br><span style="color:var(--text-muted); font-size:12px;">ESP32: ${lastFetchError}</span>` : '') +
+          '<br><br>You can still update offline: press <b>Update firmware from local</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
+        );
       }
+      const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 25000);
+      if (proxiedMeta && typeof proxiedMeta === 'object') meta = proxiedMeta;
     }
 
     const catalog = buildUpdateCatalog(files, meta);
@@ -3339,7 +3675,7 @@ async function checkAllUpdates() {
 
     const forceUsb = !backendAvailable;
 
-    showModal('Available Updates', buildUpdateModalMarkup(catalog, { forceUsb }), [
+    showModal('Available Updates', buildUpdateModalMarkup(catalog, { forceUsb, offlineClient: !otaClientOnline }), [
       {
         id: 'update-primary-action-btn',
         text: 'START UPDATE',
@@ -3347,11 +3683,18 @@ async function checkAllUpdates() {
         closeOnClick: false,
         callback: async () => {
           clearUpdateModalError();
-          const useUsb = Boolean(document.getElementById('update-via-usb')?.checked);
+          const updateMode = getUpdateModeChoice();
+          const useUsb = updateMode === 'com';
           const localMode = useUsb && Boolean(document.getElementById('update-local-offline')?.checked);
 
+          // Chế độ "Update firmware from local": đẩy file .bin có sẵn trên máy vào thiết bị qua Wi-Fi
+          if (updateMode === 'local') {
+            startLocalWifiUpdate((message) => showUpdateModalError(message));
+            return;
+          }
+
           if (forceUsb && !useUsb) {
-            showUpdateModalError('Backend is not connected. Only USB Serial update is available.');
+            showUpdateModalError('Device is not connected (WebSocket is down). Reload this page and try again.');
             return;
           }
 
@@ -3366,6 +3709,12 @@ async function checkAllUpdates() {
           const selectedGroup = catalog.versions.find((group) => group.version === selectedVersion);
           if (!selectedGroup) {
             showUpdateModalError('Please select a version.');
+            return;
+          }
+
+          // Client không có internet ⇒ quay về cách cũ (ESP tự tải .bin) ⇒ ESP BẮT BUỘC có internet.
+          if (!otaClientOnline && currentStaQual < 2) {
+            showUpdateModalError('This device has no internet and the ESP32 does not have internet either (STA is not connected). Connect the ESP32 to a Wi-Fi network with internet, or use the USB Serial update.');
             return;
           }
 
@@ -3409,7 +3758,18 @@ async function checkAllUpdates() {
 
     wireUpdateModalInteractions(catalog, { forceUsb });
   } catch (err) {
-    showModal('Error', `GitHub API Error: ${err.message}`, [{ text: 'OK' }]);
+    // Không lấy được danh sách version ⇒ mở sẵn đường USB Serial (Beta UI HTTPS, dùng
+    // Web Serial trên máy có internet) và cho thử lại sau khi đã cấp internet cho 1 trong 2 phía.
+    showModal('Cannot Fetch Firmware From Internet', `${err.message}`, [
+      {
+        text: 'Update firmware from local',
+        class: 'btn-primary',
+        closeOnClick: false, // mở modal khác trong callback ⇒ không để showModal tự đóng
+        callback: () => showLocalWifiUpdateModal(),
+      },
+      { text: 'Retry', callback: () => checkAllUpdates() },
+      { text: 'Cancel' },
+    ]);
   }
 }
 
