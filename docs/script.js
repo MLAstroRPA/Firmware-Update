@@ -2721,7 +2721,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
     `
     : `
       <div id="ota-transport-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
-        OTA is downloaded by this browser and pushed to the device, so the ESP32 does not need its own internet connection. Keep this tab open until the update finishes.
+        OTA is downloaded by this browser and pushed to the device, so the ESP32 does not need its own internet connection. Keep this tab open until the update finishes &mdash; on a phone, keep the screen on and stay in the browser (switching apps or locking the screen pauses the upload; it will restart from the first block automatically).
       </div>
     `;
 
@@ -3507,12 +3507,19 @@ function startNextPlannedOtaStep() {
 // Cách A: tải .bin bằng internet của CHÍNH client rồi đẩy sang ESP qua POST /api/ota/upload.
 // Tiến độ trong lúc gửi lấy từ phía browser; mốc 100% và việc chuyển bước vẫn do ESP báo qua
 // WebSocket (ota_progress / ota_done) để dùng chung luồng UI với cách ESP tự tải.
+//
+// ⚠️ Điện thoại: Chrome tạm dừng JS khi chuyển app / tắt màn hình ⇒ vài khối bị gửi chậm hoặc
+// request bị treo. Firmware có watchdog và sẽ huỷ phiên, nên mỗi lần hỏng ta GỬI LẠI TỪ KHỐI 0
+// (firmware tự mở phiên mới khi nhận khối 0) — tối đa BROWSER_OTA_MAX_ATTEMPTS lần.
+const BROWSER_OTA_MAX_ATTEMPTS = 3;
+const BROWSER_OTA_BLOCK_TIMEOUT_MS = 30000;
+
 async function runBrowserOtaStep(step, stepLabel) {
   let buffer;
   try {
     const response = await fetch(step.url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
-    buffer = await response.arrayBuffer();
+    buffer = await response.arrayBuffer(); // tải TRỌN file vào RAM trước khi đẩy sang ESP
   } catch (error) {
     failBrowserOtaStep(`${step.type}: ${error.message}`);
     return;
@@ -3524,33 +3531,60 @@ async function runBrowserOtaStep(step, stepLabel) {
     return;
   }
 
-  for (let offset = 0; offset < total; offset += BROWSER_OTA_CHUNK_SIZE) {
-    const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
-    const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}`;
+  for (let attempt = 1; attempt <= BROWSER_OTA_MAX_ATTEMPTS; attempt++) {
+    let failure = null;
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
-        body: slice,
-      });
-      if (!response.ok) {
-        let message = `device rejected the block (HTTP ${response.status})`;
+    for (let offset = 0; offset < total; offset += BROWSER_OTA_CHUNK_SIZE) {
+      const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
+      const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}`;
+
+      try {
+        // Timeout mỗi khối: request bị treo (Wi-Fi/AP chập chờn) phải thoát ra để thử lại,
+        // không được để treo vô hạn khiến ESP tự huỷ phiên vì watchdog.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), BROWSER_OTA_BLOCK_TIMEOUT_MS);
+        let response;
         try {
-          const detail = await response.json();
-          if (detail && detail.message) message = detail.message;
-        } catch (ignored) {
-          // body không phải JSON — giữ thông báo mặc định
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
+            body: slice,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
         }
-        throw new Error(message);
+
+        if (!response.ok) {
+          let message = `device rejected the block (HTTP ${response.status})`;
+          try {
+            const detail = await response.json();
+            if (detail && detail.message) message = detail.message;
+          } catch (ignored) {
+            // body không phải JSON — giữ thông báo mặc định
+          }
+          throw new Error(message);
+        }
+      } catch (error) {
+        failure = error.name === 'AbortError'
+          ? `no answer for the block at ${offset} (timeout ${BROWSER_OTA_BLOCK_TIMEOUT_MS / 1000}s)`
+          : error.message;
+        break;
       }
-    } catch (error) {
-      failBrowserOtaStep(`${step.type}: ${error.message}`);
-      return;
+
+      const percent = Math.round(((offset + slice.byteLength) * 100) / total);
+      updateOtaInstallOverlay(percent, stepLabel);
     }
 
-    const percent = Math.round(((offset + slice.byteLength) * 100) / total);
-    updateOtaInstallOverlay(percent, stepLabel);
+    if (!failure) return; // bước này xong
+
+    if (attempt < BROWSER_OTA_MAX_ATTEMPTS) {
+      showOtaInstallOverlay(`Retrying ${step.type} (${attempt + 1}/${BROWSER_OTA_MAX_ATTEMPTS})...`, 0);
+      continue;
+    }
+
+    failBrowserOtaStep(`${step.type}: ${failure}`);
+    return;
   }
 }
 
