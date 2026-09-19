@@ -3517,6 +3517,9 @@ function startNextPlannedOtaStep() {
 // (firmware tự mở phiên mới khi nhận khối 0) — tối đa BROWSER_OTA_MAX_ATTEMPTS lần.
 const BROWSER_OTA_MAX_ATTEMPTS = 3;
 const BROWSER_OTA_BLOCK_TIMEOUT_MS = 30000;
+// Khi thiết bị báo còn luồng upload khác giữ phiên: chờ bao lâu rồi gửi lại khối (và tối đa mấy lần).
+const BROWSER_OTA_BUSY_WAIT_MS = 3500;
+const BROWSER_OTA_BUSY_RETRIES = 4;
 
 async function runBrowserOtaStep(step, stepLabel) {
   let buffer;
@@ -3549,39 +3552,51 @@ async function runBrowserOtaStep(step, stepLabel) {
       const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
       const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}&sid=${otaSid}`;
 
-      try {
-        // Timeout mỗi khối: request bị treo (Wi-Fi/AP chập chờn) phải thoát ra để thử lại,
-        // không được để treo vô hạn khiến ESP tự huỷ phiên vì watchdog.
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), BROWSER_OTA_BLOCK_TIMEOUT_MS);
-        let response;
+      let blockDone = false;
+      for (let busyTry = 0; busyTry < BROWSER_OTA_BUSY_RETRIES && !blockDone; busyTry++) {
         try {
-          response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
-            body: slice,
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timer);
-        }
-
-        if (!response.ok) {
-          let message = `device rejected the block (HTTP ${response.status})`;
+          // Timeout mỗi khối: request bị treo (Wi-Fi/AP chập chờn) phải thoát ra để thử lại,
+          // không được để treo vô hạn khiến ESP tự huỷ phiên vì watchdog.
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), BROWSER_OTA_BLOCK_TIMEOUT_MS);
+          let response;
           try {
-            const detail = await response.json();
-            if (detail && detail.message) message = detail.message;
-          } catch (ignored) {
-            // body không phải JSON — giữ thông báo mặc định
+            response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
+              body: slice,
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timer);
           }
-          throw new Error(message);
+
+          if (!response.ok) {
+            let message = `device rejected the block (HTTP ${response.status})`;
+            try {
+              const detail = await response.json();
+              if (detail && detail.message) message = detail.message;
+            } catch (ignored) {
+              // body không phải JSON — giữ thông báo mặc định
+            }
+            throw new Error(message);
+          }
+          blockDone = true;
+        } catch (error) {
+          const message = error.name === 'AbortError'
+            ? `no answer for the block at ${offset} (timeout ${BROWSER_OTA_BLOCK_TIMEOUT_MS / 1000}s)`
+            : error.message;
+          // Thiết bị báo có luồng upload khác đang giữ phiên (thường là tab/máy cũ chưa đóng)
+          // ⇒ CHỜ rồi gửi lại khối này, KHÔNG tính là thất bại (trước đây báo lỗi luôn).
+          if (/already in progress/i.test(message) && busyTry < BROWSER_OTA_BUSY_RETRIES - 1) {
+            showOtaInstallOverlay(`Waiting for the other upload to finish (${busyTry + 1}/${BROWSER_OTA_BUSY_RETRIES - 1})...`, 0);
+            await new Promise((resolve) => setTimeout(resolve, BROWSER_OTA_BUSY_WAIT_MS));
+            continue;
+          }
+          failure = message;
         }
-      } catch (error) {
-        failure = error.name === 'AbortError'
-          ? `no answer for the block at ${offset} (timeout ${BROWSER_OTA_BLOCK_TIMEOUT_MS / 1000}s)`
-          : error.message;
-        break;
       }
+      if (failure) break;
 
       const percent = Math.round(((offset + slice.byteLength) * 100) / total);
       updateOtaInstallOverlay(percent, stepLabel);
