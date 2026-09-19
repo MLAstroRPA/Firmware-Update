@@ -2737,7 +2737,8 @@ function buildUpdateModalMarkup(catalog, options = {}) {
         </div>
         <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
       </div>
-      <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+      <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--primary);">
+        <div id="update-modal-usb-host" class="hidden"></div>
         <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
           ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
           ${catalog.extras.partitions ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-partitions"><span>partitions.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
@@ -2771,7 +2772,6 @@ function buildUpdateModalMarkup(catalog, options = {}) {
             <button type="button" class="btn btn-secondary btn-small" id="open-beta-ui-page">Open Beta UI</button>
           </div>
         </div>
-        <div id="update-modal-usb-host" class="hidden"></div>
       </div>
       <div id="update-modal-error" style="display:none; color:var(--danger); font-size:12px;"></div>
     </div>`;
