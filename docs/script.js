@@ -3112,7 +3112,9 @@ function wireUpdateModalInteractions(catalog, options = {}) {
       localWifiOptions.classList.toggle('hidden', mode !== 'local');
       localWifiOptions.style.display = mode === 'local' ? 'grid' : 'none';
     }
-    onlineList.style.display = mode === 'none' ? 'block' : 'none';
+    // Danh sách version vẫn hiện ở chế độ COM (để chọn version trước khi bấm CONNECT);
+    // chỉ ẩn khi chọn "Update firmware from local" (mode 'local' tự chọn file .bin).
+    onlineList.style.display = mode === 'local' ? 'none' : 'block';
     if (mode === 'com') {
       refreshUsbContextWarning();
       // Preload web component early to keep CONNECT flow snappy.
@@ -3263,6 +3265,11 @@ function createEspWebToolsManifestUrl(group, catalog, localParts = null) {
     name: `MLAstro RPA ${group?.version || 'local'}`,
     version: group?.version || 'local',
     new_install_prompt_erase: true,
+    // Firmware MLAstro KHÔNG hỗ trợ Improv Serial (giao thức provision Wi-Fi). Nếu để mặc định,
+    // sau khi flash xong ESP Web Tools mở lại cổng COM để "initialize Improv", không thấy thiết bị
+    // trong 1 s ⇒ hiện hộp thoại lỗi "Serial port is not ready..." dù flash đã THÀNH CÔNG.
+    // Đặt 0 ⇒ bỏ hẳn bước Improv, hộp thoại hiện thẳng "Installation complete!".
+    new_install_improv_wait_time: 0,
     builds: [
       {
         chipFamily: 'ESP32',
