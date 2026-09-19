@@ -3535,6 +3535,11 @@ async function runBrowserOtaStep(step, stepLabel) {
     return;
   }
 
+  // sid: mỗi LUỒNG upload có 1 id riêng, dùng cho MỌI khối + mọi lần retry của bước này. Thiết bị dùng
+  // nó để phân biệt "client gửi lại phiên của chính mình" (được nhận) với "một luồng upload thứ hai"
+  // (bị từ chối) — nếu không, luồng thứ hai sẽ cướp phiên của luồng đang chạy và gây lỗi
+  // "Wrong Magic Byte" / isRunning=0 (bug thật 2026-09-19).
+  const otaSid = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(-10);
   let firstFailure = null; // lý do GỐC — các lần retry có thể báo lỗi phụ ("first block missing")
 
   for (let attempt = 1; attempt <= BROWSER_OTA_MAX_ATTEMPTS; attempt++) {
@@ -3542,7 +3547,7 @@ async function runBrowserOtaStep(step, stepLabel) {
 
     for (let offset = 0; offset < total; offset += BROWSER_OTA_CHUNK_SIZE) {
       const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
-      const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}`;
+      const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}&sid=${otaSid}`;
 
       try {
         // Timeout mỗi khối: request bị treo (Wi-Fi/AP chập chờn) phải thoát ra để thử lại,
