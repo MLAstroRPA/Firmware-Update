@@ -98,14 +98,14 @@
     "release_date_utc": "2026-09-19T07:32:00Z"
   },
   "firmware 1.8.0.bin": {
-    "description": "Fix: update routine now use client internet first, then fallback to ESP internet to fetch firmware from online host",
+    "description": "Fix: update routine now use ESP internet first, then fallback to client internet to fetch firmware from online host",
     "type": "firmware",
     "version": "1.8.0",
     "size_bytes": 1284960,
     "release_date_utc": "2026-09-19T12:34:39Z"
   },
   "spiffs 1.8.0.bin": {
-    "description": "Fix: update routine now use client internet first, then fallback to ESP internet to fetch firmware from online host",
+    "description": "Fix: update routine now use ESP internet first, then fallback to client internet to fetch firmware from online host",
     "type": "spiffs",
     "version": "1.8.0",
     "size_bytes": 425984,
