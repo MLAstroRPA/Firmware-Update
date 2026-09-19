@@ -381,13 +381,13 @@ function connectWebSocket() {
   ws.onerror = (error) => {
     console.error('WebSocket error:', error);
     markBackendDisconnected();
-    updateWifiIcon(-1000); // Hiển thị mất kết nối
+    markNetworkOffline(); // AP/STA về trạng thái "chưa biết"
   };
   
   ws.onclose = () => {
     console.log('WebSocket closed');
     markBackendDisconnected();
-    updateWifiIcon(-1000); // Hiển thị mất kết nối
+    markNetworkOffline(); // AP/STA về trạng thái "chưa biết"
     // Attempt reconnect every 3 seconds (trừ khi đã bị từ chối)
     if (!reconnectInterval) {
       reconnectInterval = setInterval(connectWebSocket, 3000);
@@ -744,6 +744,26 @@ function updateUI(data) {
 
   if (data.rssi !== undefined) {
     updateWifiIcon(data.rssi);
+  }
+
+  // 3 hàng header: "AP: connected/ready/error <IP>" + "STA: 📶/📶!/📶x <IP>"
+  // (`link` có ở frame đầu tiên khi kết nối; ap_ready/ap_ip/sta_qual/sta_ip có trong telemetry)
+  if (data.link !== undefined) {
+    currentLinkPath = String(data.link || '');
+    renderNetworkRows();
+  }
+  if (data.ap_ready !== undefined) {
+    currentApReady = Boolean(data.ap_ready);
+    renderNetworkRows();
+  }
+  if (data.ap_ip !== undefined) {
+    currentApIp = data.ap_ip || '';
+    renderNetworkRows();
+  }
+  if (data.sta_qual !== undefined || data.sta_ip !== undefined) {
+    if (data.sta_qual !== undefined) currentStaQual = Number(data.sta_qual) || 0;
+    if (data.sta_ip !== undefined) currentStaIp = data.sta_ip || '';
+    renderNetworkRows();
   }
   
   if (data.wifi_scan !== undefined) {
@@ -1103,36 +1123,72 @@ function updateUI(data) {
   }
 }
 
-// ===== WIFI ICON UPDATE =====
+// ===== HEADER NETWORK ROWS (AP / STA) =====
+// Trạng thái để vẽ 3 hàng ở header. Nguồn dữ liệu: firmware ≥ 1.7.0
+//   `link`                = đường vào của CHÍNH phiên này ("AP"/"STA") — gửi 1 lần ở frame đầu khi kết nối
+//   `ap_ready` / `ap_ip`  = AP (hotspot) của thiết bị đã lên chưa + IP của AP
+//   `sta_qual` / `sta_ip` = 0 chưa vào router · 1 có router nhưng không internet · 2 có internet, + IP LAN
+let currentLinkPath = '';
+let currentApReady = null; // null = chưa biết (chưa nhận frame nào)
+let currentApIp = '';
+let currentStaQual = 0;
+let currentStaIp = '';
+let currentRssi = -1000;
+
+function renderNetworkRows() {
+  const apEl = document.getElementById('ap-link-status');
+  const iconEl = document.getElementById('sta-quality-icon');
+  const ipEl = document.getElementById('sta-ip');
+
+  if (apEl) {
+    // Nhãn \"AP:\" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ.
+    let text = '-';
+    if (currentApReady === true) {
+      const ip = currentApIp ? ` ${currentApIp}` : '';
+      text = (currentLinkPath === 'AP') ? `connected${ip}` : `ready${ip}`;
+    } else if (currentApReady === false) {
+      text = 'error';
+    }
+    apEl.textContent = text;
+  }
+
+  if (iconEl) {
+    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? '📶!' : '📶x');
+    iconEl.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
+    // Ký tự = CHẤT LƯỢNG đường STA; màu = MỨC SÓNG (RSSI) của chính đường đó.
+    if (currentStaQual <= 0) {
+      iconEl.title = 'Not joined any router';
+    } else if (currentRssi <= -100) {
+      iconEl.title = 'Joined the router (no signal reading)';
+    } else {
+      if (currentRssi > -55) iconEl.classList.add('wifi-text-success');
+      else if (currentRssi > -70) iconEl.classList.add('wifi-text-warning');
+      else iconEl.classList.add('wifi-text-danger');
+      iconEl.title = `Signal: ${currentRssi} dBm`;
+    }
+  }
+
+  if (ipEl) {
+    ipEl.textContent = currentStaIp || '-';
+  }
+}
+
+// RSSI của đường STA: chỉ cập nhật mức sóng rồi vẽ lại (KHÔNG ghi đè ký tự chất lượng 📶/📶!/📶x).
 function updateWifiIcon(rssi) {
-  const el = document.getElementById('connection-status');
-  if (!el) return;
+  currentRssi = Number(rssi);
+  if (!Number.isFinite(currentRssi)) currentRssi = -1000;
+  renderNetworkRows();
+}
 
-  el.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
-
-  // Mất kết nối (RSSI = -1000 hoặc WS đóng)
-  if (rssi <= -100) {
-    el.textContent = '❌'; // Icon mất kết nối
-    el.title = 'Disconnected';
-    el.classList.add('wifi-text-danger');
-    return;
-  }
-
-  // Hiển thị mức sóng
-  let icon = '📶';
-  let colorClass = 'wifi-text-success';
-
-  if (rssi > -55) {       // Rất tốt (> -55dBm)
-    colorClass = 'wifi-text-success';
-  } else if (rssi > -70) { // Khá (> -70dBm)
-    colorClass = 'wifi-text-warning';
-  } else {                 // Yếu (< -70dBm)
-    colorClass = 'wifi-text-danger';
-  }
-
-  el.textContent = icon;
-  el.classList.add(colorClass);
-  el.title = `Signal: ${rssi} dBm`;
+// Mất kết nối WebSocket: không biết gì về thiết bị nữa → về trạng thái "chưa biết".
+function markNetworkOffline() {
+  currentLinkPath = '';
+  currentApReady = null;
+  currentApIp = '';
+  currentStaQual = 0;
+  currentStaIp = '';
+  currentRssi = -1000;
+  renderNetworkRows();
 }
 
 function toggleStepsDisplay(show) {

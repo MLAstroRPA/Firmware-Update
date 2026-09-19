@@ -4,6 +4,16 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.7.0] - 2026-09-19
+
+- Added — Network: STA connection quality (`WQu` / `sta_qual`: 0 none / 1 router-only / 2 internet, TCP-probe every 10 s) + per-client AP/STA link in `handshakeResult` (`link`) + live STA IP (`sta_ip`)
+
+- Added — Network: AP (hotspot) state over both transports — `ap_ready` / `ap_ip` on WebSocket and token `APrd` on Serial — so the PC can show `AP: Connected / Ready / Error <IP>`
+
+- Added — Web UI + plugin header: three stacked rows (Status / AP / STA) with `AP: connected|ready|error <IP>` and `STA: 📶/📶!/📶x <IP>`, plus the theme dropdown moved below the `STA` row; `link` is now also sent in the first WebSocket frame of each client
+
+---
+
 ## [1.6.0] - 2026-09-17
 
 - Added — Web UI / Admin: option to reject a second web client (applies after SAVE & REBOOT); with the option OFF every web client can control, configure and monitor

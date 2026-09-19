@@ -157,16 +157,20 @@ body {
   gap: 10px;
 }
 
-/* Theme Select in Header */
-.header-status select#theme-select {
+/* Theme Select nằm trong cột trạng thái, NGAY DƯỚI dòng STA — font nhỏ bằng dòng AP/STA */
+.status-rows #theme-select {
   padding: 2px 5px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--text-main);
-  font-size: 12px;
+  font-size: 11px;
+  font-family: monospace;
+  opacity: 0.9;
   cursor: pointer;
-  height: 24px;
+  height: 22px;
+  margin-top: 4px;
+  align-self: flex-start;
 }
 
 .status-item {
@@ -179,9 +183,41 @@ body {
   gap: 8px;
 }
 
+/* Cột 3 hàng trạng thái ở header (Status / AP / STA) — giống HeaderBar của plugin.
+   AP/STA hiển thị chữ thường, màu xám nhạt (.link-value), KHÔNG dùng .status-value vì
+   .status-value còn được tô màu theo trạng thái (status-text-success/danger...) cho dòng Status. */
+.status-rows {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.status-rows .status-item {
+  gap: 6px;
+  line-height: 1.2;
+}
+
+/* AP/STA: chữ nhỏ + monospace GIỐNG dòng "Firmware x.y.z" ở khối logo (.version-info) */
+.status-rows .link-row .label,
+.status-rows .link-row .link-value {
+  font-size: 11px;
+  font-family: monospace;
+  opacity: 0.9;
+}
+
+.status-rows .link-row .link-value {
+  color: var(--text-muted);
+}
+
+.status-rows .link-row .wifi-status {
+  font-size: 12px;
+  line-height: 1;
+}
+
 
 #theme-select {
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 .force-stop-card {
@@ -1017,9 +1053,9 @@ body.system-locked #config-tab label {
     column-gap: 6px;
   }
 
-  .header-status #theme-select {
+  .status-rows #theme-select {
     margin-left: 0;
-    height: 24px;
+    height: 22px;
     align-self: flex-end;
   }
 

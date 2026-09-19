@@ -264,5 +264,19 @@
     "version": "1.6.0",
     "size_bytes": 393216,
     "release_date_utc": "2026-09-17T16:34:19Z"
+  },
+  "firmware 1.7.0.bin": {
+    "description": "feat: STA/AP link status (sta_qual/sta_ip + ap_ready/ap_ip + link) and 3-row Status/AP/STA header",
+    "type": "firmware",
+    "version": "1.7.0",
+    "size_bytes": 1277760,
+    "release_date_utc": "2026-09-19T07:32:00Z"
+  },
+  "spiffs 1.7.0.bin": {
+    "description": "feat: STA/AP link status (sta_qual/sta_ip + ap_ready/ap_ip + link) and 3-row Status/AP/STA header",
+    "type": "spiffs",
+    "version": "1.7.0",
+    "size_bytes": 393216,
+    "release_date_utc": "2026-09-19T07:32:00Z"
   }
 }

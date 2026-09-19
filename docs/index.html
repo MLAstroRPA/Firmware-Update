@@ -15,26 +15,35 @@
           <h1 class="brand-title">MLAstro RPA</h1>
           <p class="brand-subtitle">Robotic Polar Alignment</p>
           <div class="version-info">
-            <span id="display-fw-ver">Firmware 1.6.0</span>
-            <span id="display-spiffs-ver" style="display:none;">spiffs 1.6.0</span>
+            <span id="display-fw-ver">Firmware 1.7.0</span>
+            <span id="display-spiffs-ver" style="display:none;">spiffs 1.7.0</span>
           </div>
         </div>
       </div>
       <div class="header-tools">
         <div class="header-status">
-          <div class="status-item cursor-pointer" id="status-link" title="Click to view System Log">
-            <span class="label">Status:</span>
-            <span id="system-status" class="status-value">Idle</span>
+          <!-- 3 hàng trạng thái (giống HeaderBar của plugin): Status / AP / STA -->
+          <div class="status-rows">
+            <div class="status-item cursor-pointer" id="status-link" title="Click to view System Log">
+              <span class="label">Status:</span>
+              <span id="system-status" class="status-value">Idle</span>
+            </div>
+            <div class="status-item link-row">
+              <span class="label">AP:</span>
+              <span id="ap-link-status" class="link-value">-</span>
+            </div>
+            <div class="status-item link-row">
+              <span class="label">STA:</span>
+              <span id="sta-quality-icon" class="wifi-status" title="Not joined any router">📶x</span>
+              <span id="sta-ip" class="link-value">-</span>
+            </div>
+            <!-- Dropdown theme nằm NGAY DƯỚI dòng STA (cùng cột với Status/AP/STA) -->
+            <select id="theme-select" title="Theme Mode">
+              <option value="auto">🌗 Auto</option>
+              <option value="dark">🌑 Dark</option>
+              <option value="light">☀️ Light</option>
+            </select>
           </div>
-          <div class="status-item connection-row">
-            <span class="label">Network:</span>
-            <span id="connection-status" class="wifi-status" title="Connecting...">⚪</span>
-          </div>
-          <select id="theme-select" title="Theme Mode">
-            <option value="auto">🌗 Auto</option>
-            <option value="dark">🌑 Dark</option>
-            <option value="light">☀️ Light</option>
-          </select>
         </div>
         <div class="force-stop-card">
           <button id="btn-force-stop" class="btn-force-stop">FORCE<br>STOP</button>
