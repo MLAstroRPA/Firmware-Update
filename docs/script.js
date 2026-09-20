@@ -832,7 +832,7 @@ function updateUI(data) {
     updateWifiIcon(data.rssi);
   }
 
-  // 3 hàng header: "AP: connected/ready/error <IP>" + "STA: 📶/📶!/📶x <IP>"
+  // 3 hàng header: "AP: ● <IP>" + "STA: <thanh sóng><dấu> <IP>" (icon tô màu theo trạng thái)
   // (`link` có ở frame đầu tiên khi kết nối; ap_ready/ap_ip/sta_qual/sta_ip có trong telemetry)
   if (data.link !== undefined) {
     currentLinkPath = String(data.link || '');
@@ -1227,29 +1227,29 @@ function renderNetworkRows() {
   const ipEl = document.getElementById('sta-ip');
 
   if (apEl) {
-    // Nhãn \"AP:\" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ.
-    let text = '-';
+    // Nhãn "AP:" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ, dạng icon màu:
+    //   ● xanh = CHÍNH PC đi qua hotspot · ● vàng cam = AP đã lên nhưng PC đi đường khác · ● đỏ = AP lỗi
     if (currentApReady === true) {
       const ip = currentApIp ? ` ${currentApIp}` : '';
-      text = (currentLinkPath === 'AP') ? `connected${ip}` : `ready${ip}`;
+      apEl.textContent = (currentLinkPath === 'AP' ? '�' : '🛜') + ip;
     } else if (currentApReady === false) {
-      text = 'error';
+      apEl.textContent = '❌';
+    } else {
+      apEl.textContent = '-';
     }
-    apEl.textContent = text;
   }
 
   if (iconEl) {
-    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? '📶!' : '📶x');
+    // Icon chất lượng đường STA (emoji màu — trình duyệt tự tô nên KHÔNG đổi màu được):
+    // 📶 = có internet · 📶❗ = có router nhưng không internet · ❌ = chưa vào router.
+    // Mức sóng RSSI xem ở tooltip.
+    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? '📶❗' : '❌');
     iconEl.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
-    // Ký tự = CHẤT LƯỢNG đường STA; màu = MỨC SÓNG (RSSI) của chính đường đó.
     if (currentStaQual <= 0) {
       iconEl.title = 'Not joined any router';
     } else if (currentRssi <= -100) {
       iconEl.title = 'Joined the router (no signal reading)';
     } else {
-      if (currentRssi > -55) iconEl.classList.add('wifi-text-success');
-      else if (currentRssi > -70) iconEl.classList.add('wifi-text-warning');
-      else iconEl.classList.add('wifi-text-danger');
       iconEl.title = `Signal: ${currentRssi} dBm`;
     }
   }
