@@ -43,6 +43,15 @@ let activeUsbLocalBlobUrls = [];
 
 const ESP_WEB_TOOLS_MODULE_URL = 'https://unpkg.com/esp-web-tools@9/dist/web/install-button.js?module';
 const PUBLIC_USB_UPDATE_URL = 'https://mlastrorpa.github.io/Update/';
+
+// Chuỗi thông báo dùng chung — khai báo 1 lần duy nhất rồi tái sử dụng ở mọi chỗ (tránh lặp văn bản
+// trong file, tiết kiệm dung lượng SPIFFS vốn rất sát trần).
+const MSG_NO_USB_SERIAL = 'USB Serial is not available on this device. Use Chrome/Edge on a PC that has the CP2102 USB to UART Serial driver to update via Serial.';
+const MSG_NO_INTERNET = 'This device has no internet, can not use this progress/session/function.';
+
+// Máy/trình duyệt KHÔNG có Web Serial (mobile, tablet, Firefox/Safari…) ⇒ thay ô tick "Update via
+// COM port" bằng dòng thông báo. Desktop Chromium vẫn giữ ô tick kể cả khi trang chạy HTTP.
+const noWebSerialDevice = isMobileClient() || !('serial' in navigator);
 const FLASH_OFFSETS = {
   bootloader: '0x1000',
   partitions: '0x8000',
@@ -2764,16 +2773,14 @@ function buildUpdateModalMarkup(catalog, options = {}) {
         <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center;">
-        ${isMobileClient() ? '' : `
+        ${noWebSerialDevice ? '' : `
         <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
           <input type="checkbox" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
           <span>Update via COM port (ESP Web Tools)</span>
         </label>`}
       </div>
-      ${isMobileClient() ? `
-      <div style="font-size:11px; color:var(--text-muted);">
-        - COM port update is not available on phones/tablets &mdash; use <b>Update via OTA</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
-      </div>` : ''}
+      ${noWebSerialDevice ? `
+      <div style="font-size:11px; color:var(--text-muted);">- ${MSG_NO_USB_SERIAL}</div>` : ''}
       <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
         <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
           ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
@@ -2796,7 +2803,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
             This page is running in an insecure context (likely ESP HTTP IP). Web Serial is blocked here.
           </div>
           <div id="usb-nonet-warning" style="display:none; border:1px dashed var(--warning); border-radius:6px; padding:8px; margin-bottom:8px; font-size:12px; color:var(--warning);">
-            This device has no internet, can not use this progress/session/function.
+            ${MSG_NO_INTERNET}
             <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
               The COM port update uses the Beta UI page (HTTPS), which needs internet on this device. Use <b>Update via OTA</b> (Wi-Fi) instead, or connect this device to the internet.
             </div>
@@ -3424,12 +3431,12 @@ async function renderUsbDashboardInModal(catalog) {
 
   // Client không có internet ⇒ ESP Web Tools (tải từ unpkg) và trang Beta UI đều không dùng được
   if (!otaClientOnline) {
-    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">This device has no internet, can not use this progress/session/function. Use <b>Update via OTA</b> (Wi-Fi), or connect this device to the internet.</div></div>';
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${MSG_NO_INTERNET} Use <b>Update via OTA</b> (Wi-Fi), or connect this device to the internet.</div></div>`;
     return;
   }
 
   if (!hasWebSerialSupport()) {
-    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Web Serial unavailable here. Use Chrome/Edge on a PC that has the CP2102 USB to UART Serial driver to update via Serial.</div></div>';
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${MSG_NO_USB_SERIAL}</div></div>`;
     return;
   }
 
