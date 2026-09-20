@@ -2707,6 +2707,12 @@ function buildUpdateCatalog(files, meta) {
     if (!group.releaseDateUtc && entry.release_date_utc) group.releaseDateUtc = entry.release_date_utc;
   });
 
+  // meta.json chỉ có entry firmware/spiffs ⇒ bootloader.bin & partitions.bin nằm trong repo nhưng
+  // KHÔNG có entry. Trước đây liệt kê file qua GitHub API nên chúng vẫn hiện; nay phải bổ sung tay
+  // từ URL raw cố định (đã kiểm tra tồn tại: HTTP 200).
+  if (!extras.bootloader) extras.bootloader = buildEntryFromMetaName('bootloader.bin', meta);
+  if (!extras.partitions) extras.partitions = buildEntryFromMetaName('partitions.bin', meta);
+
   const versions = Array.from(groups.values()).sort((a, b) => compareVersionsDesc(a.version, b.version));
   return { versions, extras };
 }
