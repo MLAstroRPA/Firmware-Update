@@ -93,10 +93,11 @@ function isMobileClient() {
   return /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
 }
 
-// Chế độ cài trong modal update — dùng 2 CHECKBOX nhưng LOẠI TRỪ NHAU (tick ô này thì bỏ tick ô kia):
-//   'com'   = Update via COM port (ESP Web Tools) — flash qua cáp
-//   'local' = Update via OTA — không cáp: OTA theo version đang chọn, hoặc đẩy file .bin đã chọn qua Wi-Fi
-//   'none'  = không tick ô nào ⇒ cài version đang chọn (OTA qua mạng)
+// Chế độ cài trong modal update — 2 RADIO cùng name="update-mode" (luôn có đúng 1 cái được chọn ⇒
+// không còn trạng thái "không chọn gì" nên không thể update mà không rõ mode):
+//   'com'   = Update via COM port (ESP Web Tools)
+//   'local' = Update via OTA — theo version đang chọn, hoặc đẩy file .bin đã chọn qua Wi-Fi
+//   'none'  = không radio nào được render (mobile/tablet) ⇒ nút START UPDATE bị khoá
 function getUpdateModeChoice() {
   if (document.getElementById('update-via-usb')?.checked) return 'com';
   if (document.getElementById('update-local-wifi-check')?.checked) return 'local';
@@ -2771,7 +2772,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
       ` : `
       <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
       <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" id="update-local-wifi-check" ${forceUsb ? 'disabled title="OTA needs a live connection to the device. This page is not served by the device \u2014 use Update via COM port."' : 'checked'}>
+        <input type="radio" name="update-mode" id="update-local-wifi-check" ${forceUsb ? 'disabled title="OTA needs a live connection to the device. This page is not served by the device \u2014 use Update via COM port."' : 'checked'}>
         <span>Update via OTA</span>
       </label>`}
       <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
@@ -2789,7 +2790,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
       <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center;">
         ${noWebSerialDevice ? '' : `
         <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
+          <input type="radio" name="update-mode" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
           <span>Update via COM port (ESP Web Tools)</span>
         </label>`}
       </div>
@@ -3717,6 +3718,11 @@ async function checkAllUpdates() {
         callback: async () => {
           clearUpdateModalError();
           const updateMode = getUpdateModeChoice();
+          // Radio luôn chọn sẵn 1 mode; 'none' chỉ xảy ra khi bộ chọn bị ẩn (mobile/tablet) ⇒ chặn lại.
+          if (updateMode === 'none') {
+            showUpdateModalError('Select Update via OTA or Update via COM port before starting.');
+            return;
+          }
           const useUsb = updateMode === 'com';
           const localMode = useUsb && Boolean(document.getElementById('update-local-offline')?.checked);
 
