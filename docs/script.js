@@ -48,6 +48,9 @@ const PUBLIC_USB_UPDATE_URL = 'https://mlastrorpa.github.io/Update/';
 // trong file, tiết kiệm dung lượng SPIFFS vốn rất sát trần).
 const MSG_NO_USB_SERIAL = 'USB Serial is not available on this device. Use Chrome/Edge on a PC that has the CP2102 USB to UART Serial driver to update via Serial.';
 const MSG_NO_INTERNET = 'This device has no internet, can not use this progress/session/function.';
+// Trang chạy HTTP (ESP IP) ⇒ Web Serial bị chặn vì insecure context — KHÁC với trường hợp máy/trình
+// duyệt không có USB Serial (MSG_NO_USB_SERIAL). Đừng dùng chung 1 thông báo cho 2 trường hợp này.
+const MSG_INSECURE_PAGE = 'Web Serial is blocked on this insecure page (ESP HTTP IP). Open the Beta UI over HTTPS in a tab to update via Serial.';
 
 // Máy/trình duyệt KHÔNG có Web Serial (mobile, tablet, Firefox/Safari…) ⇒ thay ô tick "Update via
 // COM port" bằng dòng thông báo. Desktop Chromium vẫn giữ ô tick kể cả khi trang chạy HTTP.
@@ -3436,7 +3439,11 @@ async function renderUsbDashboardInModal(catalog) {
   }
 
   if (!hasWebSerialSupport()) {
-    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${MSG_NO_USB_SERIAL}</div></div>`;
+    // Phân biệt 2 nguyên nhân: (a) máy/trình duyệt không có USB Serial (mobile/tablet/Firefox…)
+    // ⇒ cần PC + Chrome/Edge + driver CP2102; (b) trang đang chạy HTTP (insecure context) ⇒ Web
+    // Serial bị chặn, phải mở Beta UI qua HTTPS.
+    const help = noWebSerialDevice ? MSG_NO_USB_SERIAL : MSG_INSECURE_PAGE;
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${help}</div></div>`;
     return;
   }
 
