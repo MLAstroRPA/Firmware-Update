@@ -2728,22 +2728,29 @@ function buildUpdateModalMarkup(catalog, options = {}) {
       </div>
     `;
 
+  // Mobile/tablet trên host HTTPS (Beta UI): backend không kết nối + Web Serial bị chặn ⇒ không
+  // cập nhật được bằng cả OTA lẫn COM ⇒ ẩn bộ chọn mode, khoá START UPDATE và hiện cảnh báo.
+  const mobileBlocked = isMobileClient() && window.isSecureContext && forceUsb;
+
   return `
     ${transportNote}
     ${forceUsb ? `
       <div id="usb-forced-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
         ${isMobileClient()
-          ? '<b>Device is not connected.</b> Reload this page and try again &mdash; Wi-Fi update needs a live connection to the device.'
+          ? 'You are using mobile/tablet &amp; this web UI is not connected to MLAstro RPA firmware. CAN NOT UPDATE VIA OTA/SERIAL. Try refresh the web page and see STATUS to make sure web UI connected to MLAstro RPA firmware'
           : 'Backend is not connected. USB Serial update has been selected automatically. OTA is unavailable right now.'}
       </div>
     ` : ''}
     <div id="online-version-list" style="max-height: 280px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">${optionsHtml}</div>
     <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:grid; gap:10px;">
+      ${mobileBlocked ? `
+      <div style="font-size:11px; color:var(--text-muted);">- OTA update is not available on phone/tablet</div>
+      ` : `
       <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
       <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
         <input type="checkbox" id="update-local-wifi-check" ${forceUsb ? 'disabled title="OTA needs a live connection to the device. This page is not served by the device \u2014 use Update via COM port."' : 'checked'}>
         <span>Update via OTA</span>
-      </label>
+      </label>`}
       <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
         <input type="checkbox" id="update-local-wifi-offline">
         <span>Local update <em>(only firmware.bin or spiffs.bin)</em></span>
@@ -2765,7 +2772,7 @@ function buildUpdateModalMarkup(catalog, options = {}) {
       </div>
       ${isMobileClient() ? `
       <div style="font-size:11px; color:var(--text-muted);">
-        COM port update (Web Serial) is not available on phones/tablets &mdash; use <b>Update via OTA</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
+        - COM port update is not available on phones/tablets &mdash; use <b>Update via OTA</b> (Wi-Fi) or install the selected version above. A full flash (bootloader + partitions) still needs a PC.
       </div>` : ''}
       <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
         <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
@@ -3156,6 +3163,14 @@ function wireUpdateModalInteractions(catalog, options = {}) {
   const partitionsCheckbox = document.getElementById('include-partitions');
   if (!usbOptions || !onlineList || !primaryActionBtn) return;
 
+  // Mobile/tablet trên host HTTPS: không OTA được (backend chưa nối) và cũng không COM được
+  // (Web Serial bị chặn) ⇒ khoá START UPDATE để không bấm vào rồi nhận lỗi khó hiểu.
+  if (isMobileClient() && window.isSecureContext && forceUsb) {
+    primaryActionBtn.disabled = true;
+    primaryActionBtn.style.opacity = '0.55';
+    primaryActionBtn.style.cursor = 'not-allowed';
+  }
+
   // Chế độ cài: 2 checkbox loại trừ nhau, cho phép cả hai đều trống (= cài version đang chọn)
   const getUpdateMode = () => getUpdateModeChoice();
 
@@ -3202,8 +3217,10 @@ function wireUpdateModalInteractions(catalog, options = {}) {
     await refreshPrimaryActionLabel();
   };
 
+  // Mobile/tablet: KHÔNG tick sẵn COM (không có ô COM để hiện + Web Serial bị chặn trên máy di động)
+  // ⇒ mode = 'none', USB Flash Dashboard không được render.
   if (comCheckbox) {
-    if (forceUsb) comCheckbox.checked = true;
+    if (forceUsb && !isMobileClient()) comCheckbox.checked = true;
     comCheckbox.addEventListener('change', () => {
       clearUpdateModalError();
       if (comCheckbox.checked) {
@@ -3396,7 +3413,8 @@ async function renderUsbDashboardInModal(catalog) {
   const host = document.getElementById('update-modal-usb-host');
   const selectedMode = getUpdateModeChoice();
   const localCheckbox = document.getElementById('update-local-offline');
-  if (!host || selectedMode !== 'com') {
+  // Mobile/tablet: không có ô COM nào để bật (và Web Serial bị chặn) ⇒ không hiện USB Flash Dashboard.
+  if (!host || selectedMode !== 'com' || isMobileClient()) {
     clearUsbDashboardHost(host);
     return;
   }
@@ -3411,7 +3429,7 @@ async function renderUsbDashboardInModal(catalog) {
   }
 
   if (!hasWebSerialSupport()) {
-    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Web Serial unavailable here. Use Chrome/Edge on HTTPS or localhost.</div></div>';
+    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Web Serial unavailable here. Use Chrome/Edge on a PC that has the CP2102 USB to UART Serial driver to update via Serial.</div></div>';
     return;
   }
 
