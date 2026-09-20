@@ -52,9 +52,20 @@ const MSG_NO_INTERNET = 'This device has no internet, can not use this progress/
 // duyệt không có USB Serial (MSG_NO_USB_SERIAL). Đừng dùng chung 1 thông báo cho 2 trường hợp này.
 const MSG_INSECURE_PAGE = 'Web Serial is blocked on this insecure page (ESP HTTP IP). Open the Beta UI over HTTPS in a tab to update via Serial.';
 
-// Máy/trình duyệt KHÔNG có Web Serial (mobile, tablet, Firefox/Safari…) ⇒ thay ô tick "Update via
-// COM port" bằng dòng thông báo. Desktop Chromium vẫn giữ ô tick kể cả khi trang chạy HTTP.
-const noWebSerialDevice = isMobileClient() || !('serial' in navigator);
+// Trên trang HTTP, Chromium (Chrome/Edge) ẨN `navigator.serial` ⇒ KHÔNG được dùng `'serial' in navigator`
+// để kết luận "thiếu Web Serial" (Edge/Chrome trên PC + HTTP sẽ bị nhận nhầm). Nhận diện bằng
+// UA/brand: desktop Chromium LUÔN có Web Serial API, chỉ là bị chặn khi trang không phải secure context.
+const chromiumDesktop = !isMobileClient() && (() => {
+  const brands = navigator.userAgentData && navigator.userAgentData.brands;
+  if (Array.isArray(brands) && brands.length) {
+    return brands.some((b) => /Chromium|Chrome|Edge|Opera/i.test((b && b.brand) || ''));
+  }
+  return /Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent || '');
+})();
+
+// Máy/trình duyệt KHÔNG thể dùng Web Serial (mobile, tablet, Firefox/Safari…) ⇒ thay ô tick
+// "Update via COM port" bằng dòng thông báo; desktop Chromium vẫn giữ ô tick kể cả trên trang HTTP.
+const noWebSerialDevice = !chromiumDesktop;
 const FLASH_OFFSETS = {
   bootloader: '0x1000',
   partitions: '0x8000',
