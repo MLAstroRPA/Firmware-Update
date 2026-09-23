@@ -211,6 +211,16 @@ body {
   line-height: 1.2;
 }
 
+/* Dòng Status có thể DÀI (HOME_COMPLETED, ALIGNING...) ⇒ không được đẩy/đè khối logo:
+   chặn bề rộng tối đa 40vw (lưới an toàn; thực tế script.js còn chặn chặt hơn — trần = bề rộng
+   chữ "READY"); script.js chèn '\n' trước COMPLETED để nó xuống dòng riêng (white-space: pre-line). */
+.status-rows #system-status {
+  display: inline-block;
+  max-width: 40vw;
+  white-space: pre-line;
+  overflow: hidden;
+}
+
 /* AP/STA: chữ nhỏ + monospace GIỐNG dòng "Firmware x.y.z" ở khối logo (.version-info) */
 .status-rows .link-row .label,
 .status-rows .link-row .link-value {
@@ -653,6 +663,10 @@ body {
   display: flex;
   gap: 10px;
   justify-content: center;
+  /* align-items: center LÀ BẮT BUỘC: khi scale nhỏ (STOP 67.5px < mũi tên 90px), mặc định
+     "stretch" coi item có height cố định là flex-start ⇒ STOP bị dán mép TRÊN, lệch tâm
+     (đo thật: tâm STOP cao hơn tâm pad 11.3px). Canh giữa ⇒ tâm STOP luôn trùng tâm pad. */
+  align-items: center;
   width: 100%;
 }
 

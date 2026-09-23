@@ -8,11 +8,19 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 - Added — Web UI: ✨ badge right after the header firmware version when a newer firmware exists — click opens `/?updates=1` (update window); the check reads `meta.json` with a 6 h localStorage cache and runs in the background
 
+- Changed — Web UI: web assets are stored pre-compressed (gzip) — SPIFFS payload 290 KB → 71 KB, so the first load / hard reload (Ctrl+F5) transfers ~4× fewer bytes
+
+- Changed — Web UI: the firmware update check is client-only (firmware no longer polls at boot — machines that run 24/7 would miss releases), has a 1 s timeout, re-checks at most every 30 min, and logs whether the answer came from the cache or a new fetch
+
 - Fixed — Wi-Fi: STA connect is retried only once per boot (`MAX_WIFI_RETRY` 5 → 1), so the AP keeps serving the Web UI/plugin when the router is absent
 
 - Fixed — Web UI: the AP/STA header draws state icons instead of text and the update window picks its mode with radios (OTA / COM port), with clearer network messages
 
 - Fixed — Update URLs after the release repository was renamed from `Update` to `Firmware-Update` (ESP catalog proxy, Beta UI page and repo links)
+
+- Fixed — Web UI: closing the update window drops `?updates=1`, so a reload no longer reopens it
+
+- Fixed — Web UI: long status texts (e.g. `HOME_COMPLETED`) shrink/wrap only on small screens instead of squeezing the logo, and the arrow-pad STOP button stays centred at every screen size
 
 ---
 

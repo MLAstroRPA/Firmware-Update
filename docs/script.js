@@ -166,6 +166,37 @@ function hideModal() {
   }
   clearUsbDashboardHost(document.getElementById('update-modal-usb-host'));
   activeSoftLimitErrorKey = '';
+  // Đóng modal (X / Cancel / click ra ngoài) ⇒ bỏ cờ `?updates=1` (hoặc `#updates`) trên URL,
+  // nhờ vậy nhấn reload sau đó KHÔNG tự mở lại modal "Available Updates".
+  clearUpdateModalUrlFlag();
+}
+
+// Bỏ cờ mở sẵn modal update trên thanh địa chỉ (giữ nguyên các query/hash khác).
+function clearUpdateModalUrlFlag() {
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    ['updates', 'update'].forEach((key) => {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    });
+
+    let hash = url.hash;
+    if (hash === '#updates') {
+      hash = '';
+      changed = true;
+    }
+
+    if (!changed) return;
+
+    const query = url.searchParams.toString();
+    history.replaceState(null, '', url.pathname + (query ? '?' + query : '') + hash);
+  } catch (error) {
+    // Trình duyệt không hỗ trợ URL/replaceState (rất cũ) ⇒ bỏ qua, đây chỉ là tiện ích URL
+  }
 }
 
 // ===== CONNECTION LOCKED OVERLAY =====
@@ -791,7 +822,7 @@ function updateUI(data) {
     } else {
       const el = document.getElementById('system-status');
       if (el) {
-        el.textContent = data.sys_status;
+        applySystemStatus(data.sys_status); // màn hình nhỏ: COMPLETED xuống dòng + thu nhỏ chữ
         el.classList.add('font-bold');
         
         // Cập nhật màu sắc trạng thái
@@ -2467,11 +2498,76 @@ function setRebootingStatus() {
   isRebooting = true;
   const statusEl = document.getElementById('system-status');
   if (statusEl) {
-    statusEl.textContent = "REBOOTING";
+    applySystemStatus("REBOOTING");
     statusEl.classList.remove('status-text-success', 'status-text-danger', 'status-text-warning');
     statusEl.classList.add('status-text-success', 'font-bold');
   }
 }
+
+// "COMPLETED" luôn xuống dòng riêng (user chốt 2026-09-23): HOME_COMPLETED -> HOME ⏎ COMPLETED
+// ⇒ cột trạng thái hẹp lại, không phải thu nhỏ chữ quá nhiều mà vẫn giữ được khối logo.
+// ('\n' chỉ hiển thị khi CSS đặt white-space: pre-line — xem #system-status trong style.css)
+function formatStatusText(text) {
+  const raw = String(text || '');
+  if (!isSmallStatusScreen()) return raw;      // màn hình lớn: giữ nguyên 1 dòng như cũ
+  return raw.replace(/_(?=COMPLETED$)/, '\n');
+}
+
+let lastSystemStatusRaw = ''; // status GỐC (chưa format) để format lại khi đổi cỡ màn hình
+
+// Chỉ áp dụng cho MÀN HÌNH NHỎ (≤768px — cùng breakpoint với CSS):
+//   · "COMPLETED" xuống dòng riêng  · thu nhỏ cỡ chữ nếu rộng hơn chữ "READY"
+// Màn hình lớn (PC/tablet) giữ nguyên như cũ: 1 dòng, cỡ chữ gốc theo CSS.
+function isSmallStatusScreen() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+// Ghi status vào header: nhớ bản GỐC (để format lại khi resize) + format + fit theo cỡ màn hình
+function applySystemStatus(text) {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  lastSystemStatusRaw = String(text || '');
+  el.textContent = formatStatusText(lastSystemStatusRaw);
+  fitStatusText();
+}
+
+// Thu nhỏ cỡ chữ (CHỈ màn hình nhỏ): trần = đúng bề rộng chữ "READY" ở cỡ gốc ⇒
+// dòng DÀI NHẤT (vd COMPLETED) không bao giờ rộng hơn READY; cả 2 dòng cùng thu nhỏ, sàn 8px.
+function fitStatusText() {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  el.style.fontSize = '';                  // về cỡ gốc trong CSS rồi đo lại
+  if (!isSmallStatusScreen()) return;      // màn hình lớn: không thu nhỏ
+
+  const cs = getComputedStyle(el);
+  const base = parseFloat(cs.fontSize) || 16;
+  if (!el.clientWidth) return;
+
+  // Đo bề rộng "READY" ở cỡ gốc bằng canvas (không cần chèn DOM, không nháy chữ)
+  const canvas = fitStatusText.canvas || (fitStatusText.canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = `${cs.fontWeight} ${base}px ${cs.fontFamily}`;
+  const cap = ctx.measureText('READY').width;   // trần = bề rộng chữ "READY"
+
+  let size = base;
+  let guard = 30;
+  while (el.scrollWidth > cap + 0.5 && size > 8 && guard-- > 0) {
+    size -= 1;
+    el.style.fontSize = size + 'px';
+  }
+}
+
+// Xoay máy / đổi cỡ cửa sổ / đổi breakpoint ⇒ format lại text (có hay không xuống dòng) rồi fit lại
+function reapplyStatusText() {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  if (lastSystemStatusRaw) el.textContent = formatStatusText(lastSystemStatusRaw);
+  fitStatusText();
+}
+
+window.addEventListener('resize', reapplyStatusText);
+// Một số browser chỉ bắn sự kiện của media query (zoom / đổi breakpoint) ⇒ nghe thêm cho chắc
+window.matchMedia('(max-width: 768px)').addEventListener?.('change', reapplyStatusText);
 
 // ===== CHART FUNCTIONS =====
 function initChart() {
@@ -3671,17 +3767,19 @@ function failBrowserOtaStep(reason) {
 }
 
 // ===== NEW-FIRMWARE BADGE (✨ cạnh số version ở header) =====
-// Biết "có bản firmware mới hơn" NGAY khi mở/refresh mà KHÔNG làm nặng trang:
-//   1) Kết quả lần trước lưu ở localStorage ⇒ hiện ✨ TỨC THÌ, không chờ mạng.
-//   2) Chỉ dò lại khi cache cũ hơn 30 phút, và HOÃN tới lúc trang rảnh (requestIdleCallback)
-//      ⇒ không tranh CPU/mạng với lúc vẽ UI + handshake WebSocket. Mỗi lần load chỉ chạy 1 lần.
-//   3) Ưu tiên internet của CHÍNH client (meta.json ~4.5 KB, KHÔNG tốn tài nguyên ESP32);
-//      client không có internet mới nhờ ESP32 tải hộ (TLS + RAM của ESP ⇒ để cuối cùng).
-//   4) Timeout ngắn + không hiện gì khi lỗi ⇒ mạng chậm/mất mạng không ảnh hưởng trải nghiệm.
+// Biết "có bản firmware mới hơn" NGAY khi mở/refresh mà KHÔNG làm nặng trang.
+// Chỉ CLIENT tự kiểm tra (user chốt 2026-09-23). Lý do: máy có thể chạy 24/7 nên firmware KHÔNG
+// dò lúc boot (sẽ bỏ lỡ bản mới) — kiểm tra mỗi lần người dùng mở Web UI là hợp lý nhất:
+//   1) Kết quả lần trước ở localStorage ⇒ hiện ✨ TỨC THÌ, không chờ mạng.
+//   2) Cache cũ hơn 30 phút ⇒ client tải meta.json (~6 KB, timeout 6 s) để biết version mới nhất.
+//   3) Không lấy được ⇒ không hiện gì (chỉ ghi log), không nháy UI.
+// Mọi lần dò đều ghi vào bảng log trên web: cả timeout lẫn thời gian + dung lượng nhận được.
 // Bấm vào số version (hoặc ✨) ⇒ mở lại trang với `?updates=1` để tự bật modal "Available Updates".
 const FW_CHECK_CACHE_KEY = 'fwUpdateCheck';
 const FW_CHECK_TTL_MS = 6 * 60 * 60 * 1000;    // dùng cache để hiện ✨ tối đa 6 giờ
 const FW_CHECK_REVALIDATE_MS = 30 * 60 * 1000; // cache cũ hơn 30 phút ⇒ dò lại ở chế độ nền
+const FW_CLIENT_FETCH_TIMEOUT_MS = 1000;       // tải meta.json (~6 KB): quá 1 s là bỏ qua ngay,
+                                               // để trang chạy tiếp bình thường (không chờ mạng)
 
 let fwNewestVersion = null;
 let fwCheckStarted = false;
@@ -3744,21 +3842,76 @@ function openUpdateModalPage() {
   window.location.href = buildUpdatesModalUrl(window.location.pathname || '/');
 }
 
-// Dò version firmware mới nhất: client trước (nhẹ), ESP sau (chỉ khi client offline).
-async function fetchFwNewestVersion() {
-  let meta = await fetchJsonWithTimeout(GITHUB_RAW_BASE + 'meta.json', 8000);
-  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) {
-    // Client không có internet ⇒ nhờ ESP32 tải hộ (chỉ có ý nghĩa khi đang nối firmware).
-    if (!hasBackendConnection()) return null;
-    meta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 12000);
+// Client tự dò meta.json — CHỈ tải meta.json (~6 KB) để nhẹ; đo byte thực nhận để báo cáo trong log.
+// (~6 KB) để nhẹ; đo luôn số byte thực nhận để báo cáo trong log.
+async function fetchFwNewestVersionFromClient(timeoutMs) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let text = '';
+  let bytes = 0;
+  try {
+    const response = await fetch(GITHUB_RAW_BASE + 'meta.json', { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return { ok: false, ms: Date.now() - startedAt, bytes, reason: `HTTP ${response.status}` };
+    text = await response.text();
+    bytes = text.length; // chỉ để báo cáo dung lượng trong log
+  } catch (error) {
+    return {
+      ok: false,
+      ms: Date.now() - startedAt,
+      bytes,
+      reason: error.name === 'AbortError' ? `timeout ${timeoutMs} ms` : error.message,
+    };
+  } finally {
+    clearTimeout(timer);
   }
-  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) return null;
+  const ms = Date.now() - startedAt;
+
+  let meta = null;
+  try {
+    meta = JSON.parse(text);
+  } catch (error) {
+    return { ok: false, ms, bytes, reason: 'bad JSON' };
+  }
+  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) {
+    return { ok: false, ms, bytes, reason: lastFetchError || 'no data' };
+  }
 
   const versions = buildUpdateCatalog(null, meta).versions
     .filter((group) => group.firmware)
     .map((group) => group.version)
     .sort(compareVersionsDesc); // mới nhất lên đầu
-  return versions.length ? versions[0] : null;
+  if (!versions.length) return { ok: false, ms, bytes, reason: 'no firmware entry' };
+  return { ok: true, ms, bytes, version: versions[0] };
+}
+
+// Tag log nguồn version: đọc từ cache hay từ lần dò mới qua mạng
+const FW_CHECK_TAG_CACHE = '[FW-CHECK] [cache]';
+const FW_CHECK_TAG_FETCH = '[FW-CHECK] [New fetch]';
+
+// CHỈ ghi log khi version mới hơn bản đang chạy; bằng/nhỏ hơn ⇒ không log gì cả.
+function logFwNewVersionIfAny(version, tag) {
+  const running = getRunningFwVersion();
+  if (!version || running === 'unknown' || compareVersionsDesc(running, version) <= 0) return;
+  appendLog(`${tag} New version detected "firmware ${version}"`);
+}
+
+// Lưu + hiện ✨ + log (nếu có bản mới hơn): version lấy từ lần dò mới ⇒ lưu cache cho lần sau
+function applyFwNewestVersion(version) {
+  fwNewestVersion = version;
+  writeFwCheckCache(version);
+  refreshFwUpdateBadge();
+  logFwNewVersionIfAny(version, FW_CHECK_TAG_FETCH);
+}
+
+// Bước dò thật sự: CLIENT tự tải meta.json (~6 KB) — chỉ chạy khi trang đã rảnh
+async function runFwUpdateCheck() {
+  const client = await fetchFwNewestVersionFromClient(FW_CLIENT_FETCH_TIMEOUT_MS);
+  if (client.ok) {
+    applyFwNewestVersion(client.version);
+  } else {
+    appendLog(`${FW_CHECK_TAG_FETCH} failed (${client.reason}) - badge from CACHE only (if any)`);
+  }
 }
 
 // Chạy 1 lần mỗi lần load: hiện kết quả cache trước, dò lại SAU khi trang rảnh.
@@ -3770,26 +3923,20 @@ function startFwUpdateCheck() {
   if (cached) {
     fwNewestVersion = cached.newest; // ✨ hiện ngay, không chờ mạng
     refreshFwUpdateBadge();
-    if (Date.now() - Number(cached.ts) < FW_CHECK_REVALIDATE_MS) return; // còn mới ⇒ khỏi gọi mạng
+    if (Date.now() - Number(cached.ts) < FW_CHECK_REVALIDATE_MS) {
+      // Chỉ log khi cache cho thấy có bản mới hơn bản đang chạy (bằng/nhỏ hơn ⇒ im lặng)
+      logFwNewVersionIfAny(cached.newest, FW_CHECK_TAG_CACHE);
+      return; // còn mới ⇒ khỏi gọi mạng
+    }
   }
 
-  const runWhenIdle = () => setTimeout(async () => {
-    try {
-      const newest = await fetchFwNewestVersion();
-      if (!newest) return; // offline / lỗi ⇒ giữ nguyên trạng thái, không nháy đổi UI
-      fwNewestVersion = newest;
-      writeFwCheckCache(newest);
-      refreshFwUpdateBadge();
-    } catch (error) {
-      console.warn('Firmware update check failed:', error);
-    }
-  }, 1200);
+  const runWhenIdle = () => setTimeout(runFwUpdateCheck, 800);
 
   // requestIdleCallback: chỉ chạy khi trình duyệt rảnh ⇒ không chen vào lúc vẽ UI/handshake WS.
   if (typeof requestIdleCallback === 'function') {
-    requestIdleCallback(runWhenIdle, { timeout: 4000 });
+    requestIdleCallback(runWhenIdle, { timeout: 3000 });
   } else {
-    runWhenIdle(); // Safari cũ: chấp nhận chờ 1.2 s sau khi load
+    runWhenIdle(); // Safari cũ: chấp nhận chờ 0.8 s sau khi load
   }
 }
 
