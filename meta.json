@@ -110,5 +110,19 @@
     "version": "1.8.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-09-19T12:34:39Z"
+  },
+  "firmware 1.8.1.bin": {
+    "description": "Fix: update URLs after the release repository was renamed to Firmware-Update (Beta UI page + ESP catalog proxy); Wi-Fi STA retried only once per boot; AP/STA status icons. Added: ✨ badge after the header firmware version when a newer firmware is available (click opens the update window)",
+    "type": "firmware",
+    "version": "1.8.1",
+    "size_bytes": 1286928,
+    "release_date_utc": "2026-09-23T07:21:00Z"
+  },
+  "spiffs 1.8.1.bin": {
+    "description": "Fix: update URLs after the release repository was renamed to Firmware-Update (Beta UI page + ESP catalog proxy); Wi-Fi STA retried only once per boot; AP/STA status icons. Added: ✨ badge after the header firmware version when a newer firmware is available (click opens the update window)",
+    "type": "spiffs",
+    "version": "1.8.1",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-09-23T07:21:00Z"
   }
 }

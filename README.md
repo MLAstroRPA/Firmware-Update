@@ -22,7 +22,7 @@ Official release repository for the **MLAstroRPA** Robotic Polar Alignment mount
 
 1. Open the update page in a Chromium browser (Chrome / Edge):
 
-   **https://mlastrorpa.github.io/Update/**
+   **https://mlastrorpa.github.io/Firmware-Update/**
 
 2. Click **🔍 CHECK FOR UPDATES**.
 3. Select the version you want to install (Firmware and/or Web UI).
@@ -300,7 +300,7 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 
 ###### 🚀 System Update
 
-- **🔍 CHECK FOR UPDATES** — compares against the release repository (`MLAstroRPA/Update`) via `meta.json`.
+- **🔍 CHECK FOR UPDATES** — compares against the release repository (`MLAstroRPA/Firmware-Update`) via `meta.json`.
 - Choose **Firmware** and/or **Web UI (SPIFFS)** and install over **OTA (Wi-Fi)** or **USB Serial (Web Serial)**.
 - A progress overlay shows the update (~2 minutes) — **do not power off or refresh** during installation.
 
@@ -374,5 +374,5 @@ platformio run -e upesy_wrover -t uploadfs
 
 ## Support
 
-- Report issues: https://github.com/MLAstroRPA/Update/issues
+- Report issues: https://github.com/MLAstroRPA/Firmware-Update/issues
 - Contact: `trong.minh@mlastro.com`

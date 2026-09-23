@@ -4,6 +4,18 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.8.1] - 2026-09-23
+
+- Added — Web UI: ✨ badge right after the header firmware version when a newer firmware exists — click opens `/?updates=1` (update window); the check reads `meta.json` with a 6 h localStorage cache and runs in the background
+
+- Fixed — Wi-Fi: STA connect is retried only once per boot (`MAX_WIFI_RETRY` 5 → 1), so the AP keeps serving the Web UI/plugin when the router is absent
+
+- Fixed — Web UI: the AP/STA header draws state icons instead of text and the update window picks its mode with radios (OTA / COM port), with clearer network messages
+
+- Fixed — Update URLs after the release repository was renamed from `Update` to `Firmware-Update` (ESP catalog proxy, Beta UI page and repo links)
+
+---
+
 ## [1.8.0] - 2026-09-19
 
 - Added — OTA: Web UI downloads the `firmware` / `spiffs` `.bin` with the browser's own internet and pushes it to the device (`POST /api/ota/upload`, 64 KB blocks, real progress) — works while the ESP32 has no internet (AP-only, STA lost)

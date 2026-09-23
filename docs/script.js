@@ -42,7 +42,7 @@ let activeUsbManifestUrl = null;
 let activeUsbLocalBlobUrls = [];
 
 const ESP_WEB_TOOLS_MODULE_URL = 'https://unpkg.com/esp-web-tools@9/dist/web/install-button.js?module';
-const PUBLIC_USB_UPDATE_URL = 'https://mlastrorpa.github.io/Update/';
+const PUBLIC_USB_UPDATE_URL = 'https://mlastrorpa.github.io/Firmware-Update/';
 
 // Chuỗi thông báo dùng chung — khai báo 1 lần duy nhất rồi tái sử dụng ở mọi chỗ (tránh lặp văn bản
 // trong file, tiết kiệm dung lượng SPIFFS vốn rất sát trần).
@@ -823,9 +823,14 @@ function updateUI(data) {
   // Cập nhật thông tin phiên bản từ Server
   if (data.fw_ver !== undefined) {
     // Lưu version để so sánh nhưng chỉ hiển thị một dòng Firmware x.x.x trên header.
-    currentFwVer = extractVersion(data.fw_ver);
+    const newFwVer = extractVersion(data.fw_ver);
+    const fwVerChanged = newFwVer !== currentFwVer;
+    currentFwVer = newFwVer;
     const el = document.getElementById('display-fw-ver');
     if (el) el.textContent = `Firmware ${currentFwVer}`;
+    // Version THẬT của thiết bị vừa tới ⇒ so lại với danh sách update (ngôi sao cạnh số version).
+    // Chỉ chạy khi version đổi để không lặp lại mỗi frame telemetry.
+    if (fwVerChanged) refreshFwUpdateBadge();
   }
 
   if (data.rssi !== undefined) {
@@ -1231,7 +1236,7 @@ function renderNetworkRows() {
     //   ● xanh = CHÍNH PC đi qua hotspot · ● vàng cam = AP đã lên nhưng PC đi đường khác · ● đỏ = AP lỗi
     if (currentApReady === true) {
       const ip = currentApIp ? ` ${currentApIp}` : '';
-      apEl.textContent = (currentLinkPath === 'AP' ? '�' : '🛜') + ip;
+      apEl.textContent = (currentLinkPath === 'AP' ? '🟢' : '🛜') + ip;
     } else if (currentApReady === false) {
       apEl.textContent = '❌';
     } else {
@@ -2642,7 +2647,7 @@ function formatUpdateReleaseDate(raw) {
 
 // GitHub API (api.github.com/repos/.../contents/) hay trả 403 do rate-limit ⇒ KHÔNG dùng để liệt kê file
 // nữa. meta.json trên raw.githubusercontent.com không bị rate-limit và đã chứa đủ tên/loại/version/size/ngày.
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/MLAstroRPA/Update/main/';
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/MLAstroRPA/Firmware-Update/main/';
 
 function buildEntryFromMetaName(name, meta) {
   const entry = (meta && meta[name]) || {};
@@ -3052,9 +3057,9 @@ function startLocalWifiUpdate(reportError) {
 
 function getPublicUsbUpdateUrl() {
   // Trang này chạy HTTP (insecure) nên Web Serial bị chặn — nút "Open Beta UI" mở trang Beta HTTPS.
-  // Kèm cờ ?updates=1 để trang Beta tự chạy kiểm tra cập nhật và MỞ SẴN modal "Available Updates"
-  // (trang Beta đọc cờ này trong url lúc load, xem HardwareUpdate/docs/script.js).
-  return PUBLIC_USB_UPDATE_URL + (PUBLIC_USB_UPDATE_URL.indexOf('?') >= 0 ? '&' : '?') + 'updates=1';
+  // Kèm cờ ?updates=1 (chung hàm buildUpdatesModalUrl với nút bấm ở header) để trang Beta tự chạy
+  // kiểm tra cập nhật và MỞ SẴN modal "Available Updates" (khối autoOpenUpdates cuối file).
+  return buildUpdatesModalUrl(PUBLIC_USB_UPDATE_URL);
 }
 
 // Mở trang Beta UI (HTTPS — nơi Web Serial/COM port chạy được). Dùng window name cố định nên
@@ -3665,6 +3670,136 @@ function failBrowserOtaStep(reason) {
   showModal('OTA Failed', `${reason}<br><br>Keep this tab open during the whole update. You can also update over USB Serial (tick <b>Update via COM port</b> in the update window).`, [{ text: 'OK' }]);
 }
 
+// ===== NEW-FIRMWARE BADGE (✨ cạnh số version ở header) =====
+// Biết "có bản firmware mới hơn" NGAY khi mở/refresh mà KHÔNG làm nặng trang:
+//   1) Kết quả lần trước lưu ở localStorage ⇒ hiện ✨ TỨC THÌ, không chờ mạng.
+//   2) Chỉ dò lại khi cache cũ hơn 30 phút, và HOÃN tới lúc trang rảnh (requestIdleCallback)
+//      ⇒ không tranh CPU/mạng với lúc vẽ UI + handshake WebSocket. Mỗi lần load chỉ chạy 1 lần.
+//   3) Ưu tiên internet của CHÍNH client (meta.json ~4.5 KB, KHÔNG tốn tài nguyên ESP32);
+//      client không có internet mới nhờ ESP32 tải hộ (TLS + RAM của ESP ⇒ để cuối cùng).
+//   4) Timeout ngắn + không hiện gì khi lỗi ⇒ mạng chậm/mất mạng không ảnh hưởng trải nghiệm.
+// Bấm vào số version (hoặc ✨) ⇒ mở lại trang với `?updates=1` để tự bật modal "Available Updates".
+const FW_CHECK_CACHE_KEY = 'fwUpdateCheck';
+const FW_CHECK_TTL_MS = 6 * 60 * 60 * 1000;    // dùng cache để hiện ✨ tối đa 6 giờ
+const FW_CHECK_REVALIDATE_MS = 30 * 60 * 1000; // cache cũ hơn 30 phút ⇒ dò lại ở chế độ nền
+
+let fwNewestVersion = null;
+let fwCheckStarted = false;
+
+function readFwCheckCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FW_CHECK_CACHE_KEY) || 'null');
+    if (!parsed || !parsed.newest || !parsed.ts) return null;
+    if (Date.now() - Number(parsed.ts) > FW_CHECK_TTL_MS) return null;
+    return parsed;
+  } catch (error) {
+    return null; // localStorage bị chặn / dữ liệu hỏng ⇒ coi như chưa có cache
+  }
+}
+
+function writeFwCheckCache(newest) {
+  try {
+    localStorage.setItem(FW_CHECK_CACHE_KEY, JSON.stringify({ newest, ts: Date.now() }));
+  } catch (error) {
+    // Hết quota / chế độ riêng tư ⇒ chỉ mất phần cache, không ảnh hưởng gì khác
+  }
+}
+
+function getRunningFwVersion() {
+  // Ưu tiên số firmware do thiết bị gửi qua WebSocket; chưa có thì lấy từ header (bản đang chạy UI).
+  if (currentFwVer && currentFwVer !== 'unknown') return currentFwVer;
+  const el = document.getElementById('display-fw-ver');
+  return el ? extractVersion(el.textContent) : 'unknown';
+}
+
+// Vẽ lại badge theo version đang chạy + version mới nhất đã biết (hàm thuần, không gọi mạng).
+function refreshFwUpdateBadge() {
+  const running = getRunningFwVersion();
+  const hasNewer = Boolean(fwNewestVersion)
+    && running !== 'unknown'
+    && compareVersionsDesc(running, fwNewestVersion) > 0; // > 0 ⇒ version mới nhất > bản đang chạy
+
+  const badge = document.getElementById('fw-new-badge');
+  if (badge) badge.classList.toggle('hidden', !hasNewer);
+
+  const fwEl = document.getElementById('display-fw-ver');
+  if (fwEl) {
+    fwEl.title = hasNewer
+      ? `New firmware ${fwNewestVersion} available — click to update`
+      : 'Click to check for updates';
+  }
+}
+
+// Dùng CHUNG cơ chế "kèm cờ ?updates=1 để trang tự mở modal update" (khối autoOpenUpdates cuối file)
+// cho CẢ 2 đường — chỉ khác LINK:
+//   · trang thiết bị (HTTP)   : mở lại chính trang đang xem ⇒ OTA được vì có backend
+//   · Beta UI (HTTPS, GitHub) : getPublicUsbUpdateUrl()      ⇒ để flash bằng COM port/Web Serial
+function buildUpdatesModalUrl(baseUrl) {
+  const sep = String(baseUrl).indexOf('?') >= 0 ? '&' : '?';
+  return baseUrl + sep + 'updates=1';
+}
+
+// Bấm số version / ✨ ⇒ mở modal update NGAY trên trang đang xem (link = trang hiện tại, khác link Beta UI).
+function openUpdateModalPage() {
+  window.location.href = buildUpdatesModalUrl(window.location.pathname || '/');
+}
+
+// Dò version firmware mới nhất: client trước (nhẹ), ESP sau (chỉ khi client offline).
+async function fetchFwNewestVersion() {
+  let meta = await fetchJsonWithTimeout(GITHUB_RAW_BASE + 'meta.json', 8000);
+  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) {
+    // Client không có internet ⇒ nhờ ESP32 tải hộ (chỉ có ý nghĩa khi đang nối firmware).
+    if (!hasBackendConnection()) return null;
+    meta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 12000);
+  }
+  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) return null;
+
+  const versions = buildUpdateCatalog(null, meta).versions
+    .filter((group) => group.firmware)
+    .map((group) => group.version)
+    .sort(compareVersionsDesc); // mới nhất lên đầu
+  return versions.length ? versions[0] : null;
+}
+
+// Chạy 1 lần mỗi lần load: hiện kết quả cache trước, dò lại SAU khi trang rảnh.
+function startFwUpdateCheck() {
+  if (fwCheckStarted) return;
+  fwCheckStarted = true;
+
+  const cached = readFwCheckCache();
+  if (cached) {
+    fwNewestVersion = cached.newest; // ✨ hiện ngay, không chờ mạng
+    refreshFwUpdateBadge();
+    if (Date.now() - Number(cached.ts) < FW_CHECK_REVALIDATE_MS) return; // còn mới ⇒ khỏi gọi mạng
+  }
+
+  const runWhenIdle = () => setTimeout(async () => {
+    try {
+      const newest = await fetchFwNewestVersion();
+      if (!newest) return; // offline / lỗi ⇒ giữ nguyên trạng thái, không nháy đổi UI
+      fwNewestVersion = newest;
+      writeFwCheckCache(newest);
+      refreshFwUpdateBadge();
+    } catch (error) {
+      console.warn('Firmware update check failed:', error);
+    }
+  }, 1200);
+
+  // requestIdleCallback: chỉ chạy khi trình duyệt rảnh ⇒ không chen vào lúc vẽ UI/handshake WS.
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(runWhenIdle, { timeout: 4000 });
+  } else {
+    runWhenIdle(); // Safari cũ: chấp nhận chờ 1.2 s sau khi load
+  }
+}
+
+(function bindFwVersionClick() {
+  ['display-fw-ver', 'fw-new-badge'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', openUpdateModalPage);
+  });
+})();
+
 async function checkAllUpdates() {
   const repoOwner = 'MLAstroRPA';
   const repoName = 'Update';
@@ -4047,6 +4182,8 @@ window.addEventListener('load', () => {
     window.scrollTo(0, 0);
   }, 50);
   connectWebSocket();
+  // Dò bản firmware mới hơn (nền, có cache) ⇒ hiện ✨ cạnh số version nếu có bản mới
+  startFwUpdateCheck();
   initChart();
   initTheme(); // Khởi tạo theme
   initCollapsibles(); // Init panels
@@ -4079,7 +4216,11 @@ window.addEventListener('load', () => {
   // Beta UI (HTTPS, mở từ nút "Open Beta UI" của modal update) mới có cờ ⇒ nhảy sang tab CONFIG
   // (nơi có nút kiểm tra cập nhật), tự kiểm tra và bật luôn modal.
   // Cùng 1 file script dùng cho cả 2 nơi (data/ -> HardwareUpdate/docs/).
-  const autoOpenUpdates = new URLSearchParams(window.location.search).has('updates')
+  // `?updates=1` (hoặc `?update=1`) hoặc `#updates` ⇒ tự mở modal "Available Updates".
+  // Nút bấm trên số version ở header dùng cờ này (xem openUpdateModalPage).
+  const autoOpenParams = new URLSearchParams(window.location.search);
+  const autoOpenUpdates = autoOpenParams.has('updates')
+    || autoOpenParams.has('update')
     || window.location.hash === '#updates';
   if (autoOpenUpdates) {
     // Hoãn nhẹ để các init khác (theme/panel/WS) chạy xong trước khi chuyển tab + hiện modal.
