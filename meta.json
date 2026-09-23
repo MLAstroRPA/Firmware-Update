@@ -112,14 +112,14 @@
     "release_date_utc": "2026-09-19T12:34:39Z"
   },
   "firmware 1.8.1.bin": {
-    "description": "Fix + polish: update links point at the renamed Firmware-Update repo (Beta UI + ESP catalog proxy); Wi-Fi STA retried only once per boot; AP/STA status icons. Added: new-firmware badge after the header version (click opens the update window); Web UI assets are gzip-compressed (SPIFFS 290 KB -> 72 KB, ~4x faster first load); version check is client-only, 1 s timeout, logged to the Web log. Fixed: update dialog no longer reopens after closing it; long status texts shrink/wrap only on small screens; arrow-pad STOP stays centred",
+    "description": "Fix + polish: update links point at the renamed Firmware-Update repo (Beta UI + ESP catalog proxy); Added: detect new firmware when opent web UI; Fixed: long status texts shrink/wrap only on small screens",
     "type": "firmware",
     "version": "1.8.1",
     "size_bytes": 1286928,
     "release_date_utc": "2026-09-23T11:10:31Z"
   },
   "spiffs 1.8.1.bin": {
-    "description": "Fix + polish: update links point at the renamed Firmware-Update repo (Beta UI + ESP catalog proxy); Wi-Fi STA retried only once per boot; AP/STA status icons. Added: new-firmware badge after the header version (click opens the update window); Web UI assets are gzip-compressed (SPIFFS 290 KB -> 72 KB, ~4x faster first load); version check is client-only, 1 s timeout, logged to the Web log. Fixed: update dialog no longer reopens after closing it; long status texts shrink/wrap only on small screens; arrow-pad STOP stays centred",
+    "description": "Fix + polish: update links point at the renamed Firmware-Update repo (Beta UI + ESP catalog proxy); Added: detect new firmware when opent web UI; Fixed: long status texts shrink/wrap only on small screens",
     "type": "spiffs",
     "version": "1.8.1",
     "size_bytes": 425984,
