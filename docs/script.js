@@ -4405,7 +4405,11 @@ if (statusLink) {
     }
   });
 }
-// ===== KEYBOARD CONTROLS =====
+// ===== KEYBOARD CONTROLS — ĐÃ TẮT (user chốt 2026-09-23) =====
+// Web UI KHÔNG còn điều khiển motor bằng bàn phím. Toàn bộ code giữ nguyên dưới dạng comment
+// để khôi phục sau này: bỏ cặp /* ... */ là bật lại
+// (mũi tên = jog Alt/Az theo Speed Level đang chọn, Space = STOP, nhả phím = stopMove giảm tốc).
+/* [KEYBOARD CONTROLS - DISABLED]
 document.addEventListener('keydown', (e) => {
   // Nếu đang nhập liệu (input/textarea) thì không xử lý phím tắt (để gõ được dấu cách)
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -4451,6 +4455,7 @@ document.addEventListener('keyup', (e) => {
     sendCommand('stopMove', { axis });
   }
 });
+*/
 
 // Prevent context menu (long press)
 document.addEventListener('contextmenu', (e) => {
