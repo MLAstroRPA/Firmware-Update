@@ -4,6 +4,20 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.9.0] - 2026-10-01
+
+### Added — Test & monitor group box in Admin Config with "Mute all error alerts (test mode)"
+
+### Added — Jog can be pressed repeatedly; a relative move locks the arrow buttons like an automatic run
+
+### Added — Default mDNS name is now mlastrorpa.local
+
+### Changed — Travel Calibration and Sensorless Auto Tuning hidden from the UI; UI hints are English-only
+
+### Fixed — The [WIFI][MDNS] up: line waits for the STA result and reports the real STA address
+
+---
+
 ## [1.8.1] - 2026-09-23
 
 - Added — Web UI: ✨ badge right after the header firmware version when a newer firmware exists — click opens `/?updates=1` (update window); the check reads `meta.json` with a 6 h localStorage cache and runs in the background

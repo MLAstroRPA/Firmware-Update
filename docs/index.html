@@ -7,6 +7,47 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- ICON SPRITE: mọi icon là <svg class="ico"><use href="#i-…"/></svg> — nét lấy currentColor nên tự hợp theme -->
+  <svg class="ico-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-control" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="10" rx="4.5"/><path d="M7 10v4M5 12h4"/><circle cx="15.6" cy="11" r="1.2"/><circle cx="18" cy="13.4" r="1.2"/></symbol>
+    <symbol id="i-config" viewBox="0 0 24 24"><path d="M3 7h9M16 7h5M3 12h3M10 12h11M3 17h11M18 17h3"/><circle cx="14" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="3.8"/><path d="M10.4 12.6L20.5 2.5M16 7l2.6 2.6M13.4 9.6l2.6 2.6"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 20h18M6.5 16.5l4-6 3.5 3 5-7.5"/></symbol>
+    <symbol id="i-position" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M5 9h13l-3.5-3.5M19 15H6l3.5 3.5"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0"/></symbol>
+    <symbol id="i-range" viewBox="0 0 24 24"><path d="M4 12h16M4 12l3.5-3.5M4 12l3.5 3.5M20 12l-3.5-3.5M20 12l-3.5 3.5"/></symbol>
+    <symbol id="i-motor" viewBox="0 0 24 24"><circle cx="8.5" cy="15.5" r="4"/><circle cx="16" cy="9.5" r="3.2"/><path d="M8.5 10.3V8.9M4 12.9l-1.2-.7M4 18.1l-1.2.7M8.5 20.7v1.4M13 18.1l1.2.7M20.2 9.5h1.2M18.1 5.9l.6-1.1M13.9 5.9l-.6-1.1M11.8 9.5h-1.2M13.9 13.1l-.6 1.1"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9.5a14 14 0 0 1 18 0M6.5 13.5a9 9 0 0 1 11 0M10 17.5a4 4 0 0 1 4 0"/><circle cx="12" cy="20.6" r="1.2"/></symbol>
+    <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M3 9.5a14 14 0 0 1 18 0M6.5 13.5a9 9 0 0 1 11 0M10 17.5a4 4 0 0 1 4 0M4 4l16 16"/></symbol>
+    <symbol id="i-bar" viewBox="0 0 24 24"><path d="M4.5 20V10M10 20V4.5M15.5 20v-6M21 20V8"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.2l7.5 2.6v5.7c0 4.9-3 7.6-7.5 9.3-4.5-1.7-7.5-4.4-7.5-9.3V5.8z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 7.5-1.9"/></symbol>
+    <symbol id="i-disk" viewBox="0 0 24 24"><path d="M4.5 4.5h11l4 4v11h-15z"/><path d="M8 4.5v5h7"/><rect x="8" y="13" width="8" height="6.5"/></symbol>
+    <symbol id="i-update" viewBox="0 0 24 24"><path d="M12 19V6M6.5 11.5L12 6l5.5 5.5M4.5 21h15"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M6 21V4h12l-2.6 4L18 12H6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10.5M7.5 10.5L12 15l4.5-4.5M4.5 20h15"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.2L12 4.5l8 6.7V20h-5.5v-5.5h-5V20H4z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.9-5.4 2.9 1-6L3.3 9.6l6-.9z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4.5L21 20H3z"/><path d="M12 10v4.5M12 17.6v.01"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.5 2.5L5.5 14H11l-1 7.5L18.5 10H13z"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7.2 6.8a7 7 0 1 0 9.6 0"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></symbol>
+    <symbol id="i-ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-spin" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></symbol>
+  </svg>
+
   <!-- HEADER -->
   <header class="header"> 
     <div class="header-content">
@@ -16,8 +57,8 @@
           <p class="brand-subtitle">Robotic Polar Alignment</p>
           <div class="version-info">
             <!-- Bấm số firmware (hoặc ngôi sao) = mở lại trang với ?updates=1 ⇒ tự bật modal update -->
-            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.8.1</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
-            <span id="display-spiffs-ver" style="display:none;">spiffs 1.8.1</span>
+            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.9.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg></span>
+            <span id="display-spiffs-ver" style="display:none;">spiffs 1.9.0</span>
           </div>
         </div>
       </div>
@@ -40,9 +81,9 @@
             </div>
             <!-- Dropdown theme nằm NGAY DƯỚI dòng STA (cùng cột với Status/AP/STA) -->
             <select id="theme-select" title="Theme Mode">
-              <option value="auto">🌗 Auto</option>
-              <option value="dark">🌑 Dark</option>
-              <option value="light">☀️ Light</option>
+              <option value="auto">◐ Auto</option>
+              <option value="dark">● Dark</option>
+              <option value="light">○ Light</option>
             </select>
           </div>
         </div>
@@ -55,10 +96,10 @@
     <!-- TAB NAVIGATION (inside header) -->
     <nav class="tab-navigation">
       <button class="tab-btn active" data-tab="control">
-        <span class="icon">🎮</span> CONTROL
+        <svg class="ico" aria-hidden="true"><use href="#i-control"/></svg> CONTROL
       </button>
       <button class="tab-btn" data-tab="config">
-        <span class="icon">🛠️</span> CONFIG
+        <svg class="ico" aria-hidden="true"><use href="#i-config"/></svg> CONFIG
       </button>
     </nav>
   </header>
@@ -72,7 +113,7 @@
       <!-- Manual Movement Control -->
       <section class="panel control-panel" id="panel-manual">
         <div class="panel-header">
-          <h2>🕹️ Manual Movement</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-move"/></svg> Manual Movement</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content movement-controls">
           <div class="speed-section">
@@ -136,7 +177,7 @@
                   <svg class="arrow-shape" viewBox="0 0 91 100" aria-hidden="true"><path d="M 78,13 L 78,87 L 13,50 Z"/></svg>
                   <span class="arrow-label">Az</span>
                 </button>
-                <button class="arrow-btn stop" id="btn-stop">⏹</button>
+                <button class="arrow-btn stop" id="btn-stop"><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg></button>
                 <button class="arrow-btn right" id="btn-right">
                   <svg class="arrow-shape" viewBox="0 0 91 100" aria-hidden="true"><path d="M 13,13 L 13,87 L 78,50 Z"/></svg>
                   <span class="arrow-label">Az</span>
@@ -151,10 +192,10 @@
         </div>
       </section>
 
-      <!-- Hardlimit Monitor -->
+      <!-- #26: ẩn thẻ Hardlimit Monitor khỏi UI — mở lại = bỏ 2 dòng comment (dòng này và dòng '#26: hết' bên dưới)
       <section class="panel monitor-panel" id="panel-monitor">
         <div class="panel-header">
-          <h2>📈 Hardlimit Monitor (StallGuard)</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg> Hardlimit Monitor (StallGuard)</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div class="chart-wrapper">
@@ -169,11 +210,12 @@
           <div class="chart-footer"></div>
         </div>
       </section>
+      #26: hết phần ẩn thẻ Hardlimit Monitor -->
 
       <!-- Position Display -->
       <section class="panel position-panel" id="panel-position">
         <div class="panel-header">
-          <h2>📐 Position</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-position"/></svg> Position</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div class="position-display">
@@ -197,7 +239,7 @@
             </div>
           </div>
           <div class="position-info">
-            <small id="homed-status">🏠 Homed: <strong>No</strong></small>
+            <small id="homed-status"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg> Homed: <strong>No</strong></small>
             <small id="homing-process-status" class="homing-status"></small>
           </div>
           <div class="home-buttons" style="margin-top: 15px;">
@@ -209,7 +251,7 @@
       <!-- Alignment Control -->
       <section class="panel alignment-panel" id="panel-alignment">
         <div class="panel-header">
-          <h2>🎯 Polar Alignment</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> Polar Alignment</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <!-- Moved Position Display -->
@@ -257,7 +299,16 @@
             </div>
             <button class="btn btn-primary btn-sm" id="align-alt-btn">Align Alt</button>
           </div>
-          <button class="btn btn-success btn-large" id="align-btn">✓ ALIGN ALL</button>
+          <!-- #27 mobile: Align Alt tách thành phần tử riêng, đặt sau 2 khối input (desktop ẩn) -->
+          <div class="align-alt-mobile-row">
+            <button class="btn btn-primary btn-sm" id="align-alt-btn-mobile" type="button">Align Alt</button>
+          </div>
+
+          <div class="align-actions">
+            <button class="btn btn-success btn-large" id="align-btn"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> ALIGN ALL</button>
+            <button class="btn btn-primary btn-large" id="save-aligned-btn"><svg class="ico" aria-hidden="true"><use href="#i-disk"/></svg> SAVE ALIGNED POSITION</button>
+            <button class="btn btn-warning btn-large" id="fallback-aligned-btn"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> FALLBACK SAVED POSITION</button>
+          </div>
         </div>
       </section>
 
@@ -265,12 +316,12 @@
       <section class="panel log-panel" id="log-panel-section">
         <div class="panel-header log-header">
           <div class="log-header-title">
-            <h2>📋 System Log</h2><span class="toggle-icon">▼</span>
+            <h2><svg class="ico" aria-hidden="true"><use href="#i-log"/></svg> System Log</h2><span class="toggle-icon">▼</span>
           </div>
           <div class="log-actions">
-            <button id="reset-error-btn" class="btn btn-warning log-btn font-bold">⚠️ RESET ERROR</button>
-            <button id="export-log-btn" class="btn btn-secondary log-btn">📥 Export CSV</button>
-            <button id="clear-log-btn" class="btn btn-danger log-btn">🗑️ Clear</button>
+            <button id="reset-error-btn" class="btn btn-warning log-btn font-bold"><svg class="ico" aria-hidden="true"><use href="#i-warn"/></svg> RESET ERROR</button>
+            <button id="export-log-btn" class="btn btn-secondary log-btn"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg> Export CSV</button>
+            <button id="clear-log-btn" class="btn btn-danger log-btn"><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg> Clear</button>
           </div>
         </div>
         <div class="panel-content">
@@ -284,7 +335,7 @@
       <section class="panel log-panel" id="serial-log-panel" style="display:none;">
         <div class="panel-header log-header">
           <div class="log-header-title">
-            <h2>🔀 Serial Log (TX/RX)</h2><span class="toggle-icon">▼</span>
+            <h2><svg class="ico" aria-hidden="true"><use href="#i-swap"/></svg> Serial Log (TX/RX)</h2><span class="toggle-icon">▼</span>
           </div>
           <div class="log-actions">
             <label class="checkbox-label" style="display:inline-flex; align-items:center; gap:4px; margin-right:6px;"
@@ -301,7 +352,7 @@
                    title="Hide polling queries ('?') and their telemetry responses ('<...>') from the Serial log display.">
               <input type="checkbox" id="hide-polling-serial" class="checkbox-input"> Hide polling and response telemetry
             </label>
-            <button id="clear-serial-log-btn" class="btn btn-danger log-btn">🗑️ Clear</button>
+            <button id="clear-serial-log-btn" class="btn btn-danger log-btn"><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg> Clear</button>
           </div>
         </div>
         <div class="panel-content">
@@ -320,7 +371,7 @@
       <!-- Soft Limits -->
       <section class="panel limits-panel" id="panel-limits">
         <div class="panel-header">
-          <h2>📏 Soft Limits (Degrees)</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-range"/></svg> Soft Limits (Degrees)</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div class="subsection">
@@ -359,7 +410,7 @@
       <!-- Motor Driver Parameters -->
       <section class="panel motor-panel" id="panel-motor">
         <div class="panel-header">
-          <h2>⚙️ Motor Driver (TMC2209)</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-motor"/></svg> Motor Driver (TMC2209)</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div class="subsection">
@@ -387,7 +438,7 @@
               <span class="unit">%</span></div>
             </div>
             <div class="config-item">
-              <label title="Hệ số dòng điện thấp nhất khi tốc độ cao (Soft CoolStep)">Soft CoolStep:</label>
+              <label title="Lowest current factor at high speed (Soft CoolStep)">Soft CoolStep:</label>
               <div class="input-wrapper"><input type="number" id="az-soft-cs-pct" value="70" min="10" max="120">
               <span class="unit">%</span></div>
             </div>
@@ -453,7 +504,7 @@
               <span class="unit">%</span></div>
             </div>
             <div class="config-item">
-              <label title="Hệ số dòng điện thấp nhất khi tốc độ cao (Soft CoolStep)">Soft CoolStep:</label>
+              <label title="Lowest current factor at high speed (Soft CoolStep)">Soft CoolStep:</label>
               <div class="input-wrapper"><input type="number" id="alt-soft-cs-pct" value="70" min="10" max="120">
               <span class="unit">%</span></div>
             </div>
@@ -500,7 +551,7 @@
       <!-- Backlash Configuration -->
       <section class="panel backlash-panel" id="panel-backlash">
         <div class="panel-header">
-          <h2>↔️ Backlash</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg> Backlash</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div class="config-item" style="margin-bottom: 15px;">
@@ -530,10 +581,21 @@
        
       <section class="panel wifi-panel" id="panel-wifi">
         <div class="panel-header">
-          <h2>📶 WiFi Configuration</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-wifi"/></svg> WiFi Configuration</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
         
+          <!-- mDNS Name (#23) — có hiệu lực sau SAVE ALL & REBOOT -->
+          <div class="config-grid motor-grid" style="margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+            <div class="config-item">
+            <label>mDNS Name:</label>
+            <div class="input-wrapper mdns-field">
+              <input type="text" id="mdns-name" placeholder="mlastrorpa" maxlength="31" title="1-31 characters: letters, digits and hyphen (-). Default hostname: mlastrorpa.local">
+              <span class="mdns-ghost" aria-hidden="true"><span id="mdns-ghost-text" class="mdns-ghost-text"></span><span class="mdns-suffix">.local</span></span>
+            </div>
+            </div>
+          </div>
+
           <!-- AP Settings -->
           <div class="subsection ap-section">
             <h3>Access Point (Hotspot)</h3>
@@ -546,7 +608,7 @@
                 <label>AP Password:</label>
                 <div class="input-wrapper pass-field">
                   <input type="password" id="ap-pass" placeholder="********" title="Leave blank = keep current password">
-                  <button type="button" id="ap-pass-eye" class="pass-eye-btn is-off" title="Show / hide AP password (fetched from device on demand)">👁</button>
+                  <button type="button" id="ap-pass-eye" class="pass-eye-btn is-off" title="Show / hide AP password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg></button>
                 </div>
               </div>
               <div class="config-item">
@@ -576,14 +638,14 @@
               <label>WiFi SSID:</label>
               <div class="input-wrapper">
                 <input type="text" id="wifi-ssid" placeholder="Network name">
-                <button id="scan-wifi-btn" class="btn btn-info btn-small" style="margin-left: 5px;">🔍 Scan</button>
+                <button id="scan-wifi-btn" class="btn btn-info btn-small" style="margin-left: 5px;"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg> Scan</button>
               </div>
             </div>
             <div class="config-item">
               <label>WiFi Password:</label>
                 <div class="input-wrapper pass-field">
                   <input type="password" id="wifi-pass" placeholder="********" title="Leave blank = keep current password">
-                  <button type="button" id="wifi-pass-eye" class="pass-eye-btn is-off" title="Show / hide WiFi password (fetched from device on demand)">👁</button>
+                  <button type="button" id="wifi-pass-eye" class="pass-eye-btn is-off" title="Show / hide WiFi password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg></button>
               </div>
             </div>
             <div class="config-item">
@@ -597,7 +659,7 @@
       <!-- Admin Configuration (Moved below WiFi) -->
       <section class="panel admin-panel" id="panel-admin">
         <div class="panel-header">
-          <h2>🔑 Admin Config</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> Admin Config</h2><span class="toggle-icon">▼</span>
         </div> 
         <div class="panel-content">
           <!-- Home (đưa lên đầu thẻ Admin Config) -->
@@ -605,16 +667,20 @@
             <label>Home:</label>
             <p style="font-size: 11px; color: var(--text-muted); margin: 6px 0 10px 0;">
               SET HOME sets the current position as Home and as the soft-limit reference (Factory Zero).
+              <!-- #24: ẩn mô tả RESET HOME (nút RESET HOME đã bị comment bên dưới)
               RESET HOME clears the Home position — the mount must be manually repositioned afterwards.
+              #24: hết phần ẩn mô tả -->
             </p>
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <button id="factory-zero-btn" class="btn btn-info" style="flex: 1;">📍 SET HOME</button>
-              <button id="reset-home-btn" class="btn btn-danger" style="flex: 1;">⚠️ RESET HOME</button>
+              <button id="factory-zero-btn" class="btn btn-info" style="flex: 1;"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg> SET HOME</button>
+              <!-- #24: ẩn nút RESET HOME khỏi UI — mở lại = bỏ 2 dòng comment
+              <button id="reset-home-btn" class="btn btn-danger" style="flex: 1;"><svg class="ico" aria-hidden="true"><use href="#i-warn"/></svg> RESET HOME</button>
+              #24: hết phần ẩn nút RESET HOME -->
             </div>
           </div>
           <!-- ALIGN ALL Mode (chọn chạy 2 trục cùng lúc hay lần lượt) -->
           <div class="config-item" style="margin-top: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px;">
-            <label>🎯 ALIGN ALL Mode:</label>
+            <label><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg> ALIGN ALL Mode:</label>
             <p style="font-size: 11px; color: var(--text-muted); margin: 6px 0 10px 0;">
               Choose how ALIGN ALL moves the axes to correct both errors.
             </p>
@@ -623,9 +689,15 @@
               <label style="display:block;"><input type="radio" name="align-all-mode" id="align-all-mode-simultaneous" value="simultaneous" checked> Run both axes simultaneously</label>
             </div>
           </div>
-          <!-- Monitoring (đổi tên từ Serial Setting; các mục Baud/Data/Stop/Parity đã ẩn) -->
-          <div class="subsection" style="margin-bottom: 15px;">
-            <h3>📊 Monitoring</h3>
+          <!-- #22: group box "Test & monitor" — gom mọi checkbox phục vụ test/giám sát vào một chỗ -->
+          <div class="test-monitor-box">
+            <h3><svg class="ico" aria-hidden="true"><use href="#i-bar"/></svg> Test &amp; monitor</h3>
+            <div class="config-item" style="margin-top: 15px;">
+              <label for="mute-all-errors" class="checkbox-label" title="Test mode: mute EVERY error report — no error/warning pop-up and no error beep. Errors are still detected, still written to the log, and the system still stops/locks as usual.">
+                <input type="checkbox" id="mute-all-errors" class="checkbox-input">
+                Mute all error alerts (test mode)
+              </label>
+            </div>
             <!-- [UI REMOVED — giữ lại dưới dạng comment để khôi phục sau này] -->
             <!--
             <div class="config-grid" style="grid-template-columns: repeat(2, 1fr);">
@@ -688,9 +760,15 @@
               </label>
             </div>
             <div class="config-item" style="margin-top: 10px;">
-              <label for="reject-second-webclient" class="checkbox-label" title="OFF (default): nhiều web client cùng lúc, mọi web client đều điều khiển được. ON: chỉ 1 web client, client thứ hai bị từ chối. Cần SAVE ALL &amp; REBOOT để có hiệu lực (nút Apply không áp dụng cờ này).">
+              <label for="reject-second-webclient" class="checkbox-label" title="OFF (default): several web clients at once, every one of them can control. ON: only ONE web client, the second one is rejected. SAVE ALL &amp; REBOOT required (the Apply button does not apply this flag).">
                 <input type="checkbox" id="reject-second-webclient" class="checkbox-input">
                 Reject second web client (allow only ONE web session) (Save &amp; Reboot required)
+              </label>
+            </div>
+            <div class="config-item" style="margin-top: 10px;">
+              <label for="show-steps" class="checkbox-label">
+                <input type="checkbox" id="show-steps" class="checkbox-input">
+                Show current step in Control tab
               </label>
             </div>
           </div>
@@ -700,18 +778,20 @@
               Swap Az-Alt motor ports (Save &amp; Reboot required)
             </label>
           </div>
+          <div class="config-item" style="margin-top: 10px;">
+            <label for="enable-beep" class="checkbox-label" title="Tick = beep on (default). Untick = completely SILENT (boot melody included). Effective right after Apply; stored in FRAM when you use SAVE ALL.">
+              <input type="checkbox" id="enable-beep" class="checkbox-input" checked>
+              Enable beep (uncheck = silent mode)
+            </label>
+          </div>
+          <!-- #26: ẩn checkbox "Show hardlimit monitor" khỏi UI
           <div class="config-item" style="margin-top: 15px;">
             <label for="show-hardlimit-monitor" class="checkbox-label">
               <input type="checkbox" id="show-hardlimit-monitor" class="checkbox-input">
               Show hardlimit monitor (Enable Chart)
             </label>
           </div>
-          <div class="config-item" style="margin-top: 15px;">
-          <label for="show-steps" class="checkbox-label">
-            <input type="checkbox" id="show-steps" class="checkbox-input">
-            Show current step in Control tab
-          </label>
-        </div>
+          #26: hết phần ẩn -->
         <div class="config-item" style="margin-top: 15px;">
           <label>Max Motor RPM (Speed Level 5):</label>
           <div class="input-wrapper">
@@ -719,6 +799,7 @@
             <span class="unit">RPM (50-400)</span>
           </div>
         </div>
+        <!-- Sensorless Auto Tuning: ẩn khỏi UI — mở lại = bỏ 2 dòng comment (dòng này và dòng '#: hết phần ẩn Sensorless Auto Tuning' bên dưới)
         <div class="config-item" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
           <label>Sensorless Auto Tuning:</label>
           <div class="calib-box">
@@ -753,9 +834,11 @@
             </div>
           </div>
         </div>
+        hết phần ẩn Sensorless Auto Tuning -->
         <!-- Hard Limits (thẻ con của Admin Config) -->
         <div class="config-item" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
-          <label>🛡️ Hard Limits (Sensorless)</label>
+          <!-- #26: ẩn thẻ Hard Limits (SGTHRS / TCOOLTHRS / Debounce / Enable Hard Limit) khỏi UI
+          <label><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg> Hard Limits (Sensorless)</label>
           <div class="subsection">
             <h3>Azimuth SGTHRS (Speed 1-5)</h3>
             <div class="config-grid" style="grid-template-columns: repeat(5, 1fr);">
@@ -815,6 +898,7 @@
               Enable Hard Limit (STALLGUARD Detection)
             </label>
           </div>
+          #26: hết phần ẩn thẻ Hard Limits -->
           <!-- Enable Soft Limit (nằm chung nhóm với Enable Hardlimit, trên đường kẻ ngăn cách) -->
           <div class="config-item" style="margin-top: 10px;">
             <label for="enable-softlimit" class="checkbox-label">
@@ -823,6 +907,7 @@
             </label>
           </div>
         </div>
+        <!-- Travel Calibration: ẩn khỏi UI — mở lại = bỏ 2 dòng comment (dòng này và dòng '#: hết phần ẩn Travel Calibration' bên dưới)
         <div class="config-item" style="margin-top: 15px;">
           <label>Travel Calibration:</label>
           <div class="calib-box">
@@ -851,9 +936,10 @@
             <button id="calib-all-btn" class="btn btn-primary">Calib All</button>
           </div>
         </div>
+        hết phần ẩn Travel Calibration -->
         <!-- Change Admin Password -->
         <div class="config-item" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
-          <label>🔒 Change Admin Password:</label>
+          <label><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg> Change Admin Password:</label>
           <div class="config-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
             <div class="config-item">
               <label>Current Password:</label>
@@ -873,18 +959,18 @@
       <!-- System Update (Moved from Update Tab) -->
       <section class="panel update-panel" id="panel-update">
         <div class="panel-header">
-          <h2>🚀 System Update</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-update"/></svg> System Update</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 14px; color: var(--text-muted);">
             <span>Check for update from release <a href="https://github.com/MLAstroRPA/Firmware-Update/tree/main" target="_blank">repository</a></span>
-            <a href="https://github.com/MLAstroRPA/Firmware-Update/issues" target="_blank" style="color: var(--danger); white-space: nowrap;">🐛 Report issue</a>
+            <a href="https://github.com/MLAstroRPA/Firmware-Update/issues" target="_blank" style="color: var(--danger); white-space: nowrap;"><svg class="ico" aria-hidden="true"><use href="#i-flag"/></svg> Report issue</a>
           </div>
 
           
           <div class="button-group" style="margin-bottom: 25px; justify-content: center;">
             <button class="btn btn-primary" onclick="checkAllUpdates()" style="padding: 10px 25px;">
-              🔍 CHECK FOR UPDATES
+              <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg> CHECK FOR UPDATES
             </button>
           </div>
 
@@ -897,7 +983,7 @@
               <div id="ota-progress-bar" class="progress-bar"></div>
             </div>
             <p style="font-size: 12px; color: var(--danger); margin-top: 10px; text-align: center;">
-              ⚠️ DO NOT POWER OFF OR REFRESH during the update!
+              ⚠ DO NOT POWER OFF OR REFRESH during the update!
             </p>
           </div>
 
@@ -918,7 +1004,7 @@
             <div class="ota-install-help">Keep this page visible to prevent slow down</div>
           </div>
           <div id="ota-install-view-success" class="hidden">
-            <div class="ota-install-success-icon">🎉</div>
+            <div class="ota-install-success-icon"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg></div>
             <div class="ota-install-success-title">Installation complete!</div>
             <div id="ota-install-success-countdown" class="ota-install-success-countdown">REBOOTING IN 3s</div>
           </div>
@@ -928,14 +1014,14 @@
       <!-- Save Settings -->
       <section class="panel save-panel" id="panel-save">
         <div class="panel-header">
-          <h2>💾 Configuration Management</h2><span class="toggle-icon">▼</span>
+          <h2><svg class="ico" aria-hidden="true"><use href="#i-disk"/></svg> Configuration Management</h2><span class="toggle-icon">▼</span>
         </div>
         <div class="panel-content">
-          <button class="btn btn-primary btn-large" id="apply-btn">⚡ APPLY SETTINGS</button>
-          <button class="btn btn-success btn-large" id="save-all-btn">✓ SAVE ALL & REBOOT</button>
-          <button class="btn btn-warning btn-large" id="reboot-btn">⏻ REBOOT</button>
-          <button class="btn btn-secondary btn-large admin-btn" id="admin-config-btn">🔑 Admin Config</button>
-          <button class="btn btn-danger btn-large" id="factory-reset-btn">⚠️ FACTORY RESET</button>
+          <button class="btn btn-primary btn-large" id="apply-btn"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg> APPLY SETTINGS</button>
+          <button class="btn btn-success btn-large" id="save-all-btn"><svg class="ico" aria-hidden="true"><use href="#i-check"/></svg> SAVE ALL & REBOOT</button>
+          <button class="btn btn-warning btn-large" id="reboot-btn"><svg class="ico" aria-hidden="true"><use href="#i-power"/></svg> REBOOT</button>
+          <button class="btn btn-secondary btn-large admin-btn" id="admin-config-btn"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg> Admin Config</button>
+          <button class="btn btn-danger btn-large" id="factory-reset-btn"><svg class="ico" aria-hidden="true"><use href="#i-warn"/></svg> FACTORY RESET</button>
           <div id="save-message" class="inline-message save-msg"></div>
         </div>
       </section>
@@ -962,11 +1048,11 @@
   <!-- CONNECTION LOCKED OVERLAY (không thể đóng, chỉ có nút Close Page) -->
   <div id="connection-locked-overlay" class="connection-locked-overlay hidden">
     <div class="connection-locked-card">
-      <div class="connection-locked-icon">🔒</div>
+      <div class="connection-locked-icon"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg></div>
       <h2 class="connection-locked-title">Connection Rejected</h2>
       <p id="connection-locked-reason" class="connection-locked-reason"></p>
       <p class="connection-locked-hint">The system is currently busy. Only one control session is allowed at a time.</p>
-      <button id="connection-locked-close-btn" class="btn btn-danger btn-large">✕ Close This Page</button>
+      <button id="connection-locked-close-btn" class="btn btn-danger btn-large"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg> Close This Page</button>
     </div>
   </div>
 
@@ -975,7 +1061,7 @@
 
   <!-- FOOTER -->
   <footer class="footer">
-    <p>MLAstro Robotic Polar Alignment | Built with ❤️</p>
+    <p>MLAstro Robotic Polar Alignment | Built with ♥</p>
     <p><a href="https://mlastro.com" target="_blank" style="color: inherit;">https://mlastro.com</a></p>
     <p>trong.minh@mlastro.com</p>
   </footer>

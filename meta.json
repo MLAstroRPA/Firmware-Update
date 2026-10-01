@@ -87,21 +87,21 @@
     "description": "feat: STA/AP link status (sta_qual/sta_ip + ap_ready/ap_ip + link) and 3-row Status/AP/STA header",
     "type": "firmware",
     "version": "1.7.0",
-    "size_bytes": 1277760,
+    "size_bytes": 1286928,
     "release_date_utc": "2026-09-19T07:32:00Z"
   },
   "spiffs 1.7.0.bin": {
     "description": "feat: STA/AP link status (sta_qual/sta_ip + ap_ready/ap_ip + link) and 3-row Status/AP/STA header",
     "type": "spiffs",
     "version": "1.7.0",
-    "size_bytes": 393216,
+    "size_bytes": 425984,
     "release_date_utc": "2026-09-19T07:32:00Z"
   },
   "firmware 1.8.0.bin": {
     "description": "Fix: update routine now use ESP internet first, then fallback to client internet to fetch firmware from online host",
     "type": "firmware",
     "version": "1.8.0",
-    "size_bytes": 1284960,
+    "size_bytes": 1286928,
     "release_date_utc": "2026-09-19T12:34:39Z"
   },
   "spiffs 1.8.0.bin": {
@@ -124,5 +124,19 @@
     "version": "1.8.1",
     "size_bytes": 425984,
     "release_date_utc": "2026-09-23T11:10:31Z"
+  },
+  "firmware 1.9.0.bin": {
+    "description": "[New feat] Test mode: mute every error alert (pop-up + error beep); jog can be pressed repeatedly (no busy pop-up); a relative move locks the arrow buttons like an automatic run; default host name mlastrorpa.local. [Fix] the [WIFI][MDNS] up: line waits for the STA address. [UI] Travel Calibration / Sensorless Auto Tuning hidden, English-only hints",
+    "type": "firmware",
+    "version": "1.9.0",
+    "size_bytes": 1290368,
+    "release_date_utc": "2026-10-01T09:31:19Z"
+  },
+  "spiffs 1.9.0.bin": {
+    "description": "[New feat] Test mode: mute every error alert; continuous jogging; relative-move arrow lock; default host mlastrorpa.local. [Fix] mDNS log line after the STA address. [UI] Travel Calibration / Sensorless Auto Tuning hidden, English-only hints",
+    "type": "spiffs",
+    "version": "1.9.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-01T09:31:19Z"
   }
 }

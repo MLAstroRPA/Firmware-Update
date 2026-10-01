@@ -2,10 +2,12 @@
 let ws = null;
 let reconnectInterval = null;
 let isSystemHomed = false; // Biến lưu trạng thái Homed từ server
+let currentSystemStatus = ''; // #27: trạng thái hệ thống mới nhất (READY/BUSY/...) để kiểm tra trước khi lưu vị trí
 let wasAutoMoving = false; // Biến lưu trạng thái di chuyển trước đó để phát hiện khi nào hoàn thành
 let currentFwVer = "unknown";
 let currentSpiffsVer = "unknown";
 let hasSystemError = false;
+let muteAllErrors = false; // #22: Test mode - khoá mọi báo lỗi (Admin Config). Lấy từ firmware qua config
 let isSystemCalibrating = false; // Biến lưu trạng thái đang Calib
 let isCalibAutoCenterPending = false; // Biến cờ theo dõi quy trình Auto Center sau Calib
 let isUpdatingFromWS = false; // Cờ chặn gửi lệnh lưu khi đang cập nhật từ Server
@@ -17,6 +19,9 @@ let motionMode = 'idle';
 
 // Chart Variables
 let sgChartCtx = null;
+// #26: cache giá trị Hardlimit nhận từ thiết bị (thẻ này đã bị ẩn khỏi UI) ⇒ Apply/Save gửi lại đúng số cũ,
+// KHÔNG vô tình tắt Hard Limit khi field không còn trên giao diện.
+const _hlCache = { az_sg_thrs: null, alt_sg_thrs: null, az_tcool_presets: null, alt_tcool_presets: null, stall_time: null, escape_rotations: null, enable_hardlimit: null, show_hardlimit_monitor: null };
 const sgHistoryLength = 100;
 let lastCalibData = null; // Lưu kết quả calib tạm thời
 let sgDataAz = new Array(sgHistoryLength).fill(0);
@@ -131,7 +136,7 @@ function showModal(title, content, buttons = []) {
   if (t.includes('blocked') || t.includes('error') || t.includes('warning') || 
       c.includes('blocked') || c.includes('locked') || c.includes('error') || c.includes('failed') || 
       c.includes('hard limit reached') || c.includes('out of limit')) {
-    if (!displayTitle.includes('⚠️')) displayTitle = '⚠️ ' + displayTitle;
+    if (!displayTitle.includes('⚠')) displayTitle = '⚠ ' + displayTitle;
   }
 
   modal.classList.remove('modal-passive', 'modal-detached');
@@ -239,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0D1B2B;color:#e0e0e0;font-family:sans-serif;text-align:center;padding:20px;">
             <div>
-              <div style="font-size:64px;margin-bottom:16px;">🔒</div>
+              <div style="font-size:64px;margin-bottom:16px;">${svgIco('i-lock')}</div>
               <h2 style="color:#e74c3c;margin-bottom:12px;">Please Close This Tab</h2>
               <p style="color:#a0a0a0;">The connection was rejected. Please manually close this browser tab.</p>
             </div>
@@ -550,18 +555,18 @@ function updateUI(data) {
       }
     } else if(data.status === 'configApplied'){
       window._applyAckPending = false;
-      showMessage('⚡ Settings applied (not saved). Reboot to discard.', '#save-message', 4000);
+      showMessage('↯ Settings applied (not saved). Reboot to discard.', '#save-message', 4000);
     } else if(data.status === 'locked'){
       // Web bị khóa bởi PC/Serial plugin: lệnh save/apply không được xử lý.
       window._applyAckPending = false;
       if (window._savePending) window._savePending = null;
-      showMessage('🔒 Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or close its connection, then reload to gain control.', '#save-message', 8000);
+      showMessage('⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or close its connection, then reload to gain control.', '#save-message', 8000);
     }
   }
 
   // Config nhận từ serial (broadcastConfig) - tương đương nhấn Apply
   if (data.config_pushed && data.motor) {
-    showMessage('⚡ Config received from device. Applied.', '#save-message', 4000);
+    showMessage('↯ Config received from device. Applied.', '#save-message', 4000);
   }
 
   // Đồng bộ ALIGN ALL mode (radio Admin Config) với chế độ đã lưu trên device
@@ -671,11 +676,14 @@ function updateUI(data) {
   // Xử lý kết quả Tuning
   if (data.cmd === 'tuningResult') {
     const axisName = data.axis.toUpperCase();
-    const scalePct = parseInt(document.getElementById('tuning-scale-pct').value) || 80;
+    // Ô nhập Scale đã bị ẩn khỏi UI (Sensorless Auto Tuning): vẫn nhận kết quả tuning đến từ
+    // plugin/Serial nên phải đọc có guard, thiếu ô ⇒ dùng mặc định 80%.
+    const scaleEl = document.getElementById('tuning-scale-pct');
+    const scalePct = (scaleEl && parseInt(scaleEl.value)) || 80;
     const avgSgResults = data.avg_sg_results;
     
     if (!avgSgResults || !Array.isArray(avgSgResults)) {
-      showModal('⚠️ Error', 'Missing 5-level results from firmware.', [{ text: 'OK' }]);
+      showModal('⚠ Error', 'Missing 5-level results from firmware.', [{ text: 'OK' }]);
       return;
     }
 
@@ -715,7 +723,9 @@ function updateUI(data) {
   if (data.cmd === 'tuningTcoolResult') {
     const axisName = data.axis.toUpperCase();
     const avgResults = data.avg_tstep_results; // Mảng 5 cấp: 2, 4, 8, 16, 32
-    const tcoolScalePct = parseInt(document.getElementById('tuning-tcool-scale-pct').value) || 120;
+    // Ô nhập TC(%) đã bị ẩn khỏi UI (Sensorless Auto Tuning) ⇒ thiếu ô thì dùng mặc định 120%.
+    const tcoolScaleEl = document.getElementById('tuning-tcool-scale-pct');
+    const tcoolScalePct = (tcoolScaleEl && parseInt(tcoolScaleEl.value)) || 120;
     
     let modalContent = `<strong>${axisName} TCOOLTHRS Tuning Results:</strong><br><br>`;
     modalContent += `<table class="tuning-results-table"><thead><tr><th>Microstep</th><th>Max TSTEP</th><th>Proposed (${tcoolScalePct}%)</th></tr></thead><tbody>`;
@@ -744,7 +754,7 @@ function updateUI(data) {
     ]);
   }
 
-  if (data.alert) {
+  if (data.alert && !muteAllErrors) {   // #22: Test mode đang bật ⇒ bỏ mọi popup báo lỗi/cảnh báo
     showModal('System Message', data.alert, [{ text: 'OK', class: 'btn-primary' }]);
   }
   if (data.pos_az !== undefined) {
@@ -793,7 +803,7 @@ function updateUI(data) {
   }
   if (data.homed !== undefined) {
     isSystemHomed = data.homed; // Cập nhật biến toàn cục
-    document.getElementById('homed-status').innerHTML = '🏠 Homed: <strong>' + (data.homed ? 'Yes' : 'No') + '</strong>';
+    document.getElementById('homed-status').innerHTML = svgIco('i-home') + ' Homed: <strong>' + (data.homed ? 'Yes' : 'No') + '</strong>';
     
     // Kiểm tra nếu vừa hoàn thành Auto Center từ quy trình Calib
     if (isSystemHomed && isCalibAutoCenterPending) {
@@ -826,6 +836,7 @@ function updateUI(data) {
   }
   
   if (data.sys_status !== undefined) {
+    currentSystemStatus = data.sys_status; // #27: nút SAVE ALIGNED POSITION chỉ cho lưu khi READY
     if (data.sys_status === 'REBOOTING') {
       isRebooting = true;
     }
@@ -930,12 +941,12 @@ function updateUI(data) {
     if (statusEl) {
       if (data.isAutoMoving) {
         // Đang chạy
-        statusEl.textContent = "🔄 Homing...";
+        statusEl.innerHTML = svgIco('i-spin') + ' Homing...';
         statusEl.className = "homing-status homing-running";
         wasAutoMoving = true;
       } else if (wasAutoMoving) {
         // Vừa chạy xong (chuyển từ true -> false)
-        statusEl.textContent = isSystemHomed ? "✅ Homing Completed" : "✅ Auto Center Done";
+        statusEl.innerHTML = svgIco('i-check') + (isSystemHomed ? ' Homing Completed' : ' Auto Center Done');
         statusEl.className = "homing-status homing-completed";
         wasAutoMoving = false;
         // Ẩn dòng Completed sau 3 giây
@@ -976,6 +987,10 @@ function updateUI(data) {
     if (data.wifi_ap.ssid !== undefined) document.getElementById('ap-ssid').value = data.wifi_ap.ssid;
     if (data.wifi_ap.ip !== undefined) document.getElementById('ap-ip').value = data.wifi_ap.ip;
     if (data.wifi_ap.subnet !== undefined) document.getElementById('ap-subnet').value = data.wifi_ap.subnet;
+    if (data.wifi_ap.mdns !== undefined) {   // #23: tên mDNS đang dùng trên thiết bị
+      const m = document.getElementById('mdns-name');
+      if (m) { m.value = data.wifi_ap.mdns; m.dispatchEvent(new Event('input')); }
+    }
   }
   // Cập nhật Soft Limits lên giao diện
   if (data.limits !== undefined) {
@@ -1026,13 +1041,21 @@ function updateUI(data) {
       document.getElementById('show-steps').checked = data.motor.show_steps;
       toggleStepsDisplay(data.motor.show_steps);
     }
+    // #21: bật/tắt tiếng beep (checkbox Admin Config — tick = có tiếng)
+    if (data.motor.enable_beep !== undefined) {
+      const cb = document.getElementById('enable-beep');
+      if (cb) cb.checked = data.motor.enable_beep;
+    }
     if (data.motor.az_sg_thrs !== undefined) {
+      _hlCache.az_sg_thrs = data.motor.az_sg_thrs;
       data.motor.az_sg_thrs.forEach((val, i) => { const el = document.getElementById(`az-sg-${i+1}`); if(el) el.value = val; });
     }
     if (data.motor.alt_sg_thrs !== undefined) {
+      _hlCache.alt_sg_thrs = data.motor.alt_sg_thrs;
       data.motor.alt_sg_thrs.forEach((val, i) => { const el = document.getElementById(`alt-sg-${i+1}`); if(el) el.value = val; });
     }
     if (data.motor.az_tcool_presets !== undefined) {
+      _hlCache.az_tcool_presets = data.motor.az_tcool_presets;
       const msteps = [2, 4, 8, 16, 32, 64];
       data.motor.az_tcool_presets.forEach((val, i) => {
         const el = document.getElementById(`az-tcool-${msteps[i]}`);
@@ -1040,16 +1063,31 @@ function updateUI(data) {
       });
     }
     if (data.motor.alt_tcool_presets !== undefined) {
+      _hlCache.alt_tcool_presets = data.motor.alt_tcool_presets;
       const msteps = [2, 4, 8, 16, 32, 64];
       data.motor.alt_tcool_presets.forEach((val, i) => {
         const el = document.getElementById(`alt-tcool-${msteps[i]}`);
         if (el) el.value = val;
       });
     }
-    if (data.motor.stall_time !== undefined) document.getElementById('stall-time').value = data.motor.stall_time;
-    if (data.motor.escape_rotations !== undefined) document.getElementById('escape-rotations').value = data.motor.escape_rotations;
-    if (data.motor.enable_hardlimit !== undefined) document.getElementById('enable-hardlimit').checked = data.motor.enable_hardlimit;
+    // #26: các field Hardlimit không còn trên UI ⇒ cache lại để Apply/Save không tắt Hard Limit
+    if (data.motor.stall_time !== undefined) {
+      _hlCache.stall_time = data.motor.stall_time;
+      const el = document.getElementById('stall-time');
+      if (el) el.value = data.motor.stall_time;
+    }
+    if (data.motor.escape_rotations !== undefined) {
+      _hlCache.escape_rotations = data.motor.escape_rotations;
+      const el = document.getElementById('escape-rotations');
+      if (el) el.value = data.motor.escape_rotations;
+    }
+    if (data.motor.enable_hardlimit !== undefined) {
+      _hlCache.enable_hardlimit = data.motor.enable_hardlimit;
+      const el = document.getElementById('enable-hardlimit');
+      if (el) el.checked = data.motor.enable_hardlimit;
+    }
     if (data.motor.show_hardlimit_monitor !== undefined) {
+      _hlCache.show_hardlimit_monitor = data.motor.show_hardlimit_monitor;
       const cb = document.getElementById('show-hardlimit-monitor');
       if (cb) {
         cb.checked = data.motor.show_hardlimit_monitor;
@@ -1090,6 +1128,12 @@ function updateUI(data) {
     if (data.admin !== undefined && data.admin.reject_second_webclient !== undefined) {
       const rj = document.getElementById('reject-second-webclient');
       if (rj) rj.checked = data.admin.reject_second_webclient;
+    }
+    if (data.admin !== undefined && data.admin.mute_all_errors !== undefined) {
+      // #22: Test mode - khoá mọi báo lỗi (đồng bộ công tắc với firmware)
+      muteAllErrors = !!data.admin.mute_all_errors;
+      const mb = document.getElementById('mute-all-errors');
+      if (mb) mb.checked = muteAllErrors;
     }
     isUpdatingFromWS = false;
   }
@@ -1252,7 +1296,7 @@ function renderNetworkRows() {
 
   if (apEl) {
     // Nhãn "AP:" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ, dạng icon màu:
-    //   ● xanh = CHÍNH PC đi qua hotspot · ● vàng cam = AP đã lên nhưng PC đi đường khác · ● đỏ = AP lỗi
+    //   🟢 = CHÍNH PC đi qua hotspot · 🛜 = AP đã lên nhưng PC đi đường khác · ❌ = AP lỗi
     if (currentApReady === true) {
       const ip = currentApIp ? ` ${currentApIp}` : '';
       apEl.textContent = (currentLinkPath === 'AP' ? '🟢' : '🛜') + ip;
@@ -1267,7 +1311,7 @@ function renderNetworkRows() {
     // Icon chất lượng đường STA (emoji màu — trình duyệt tự tô nên KHÔNG đổi màu được):
     // 📶 = có internet · 📶❗ = có router nhưng không internet · ❌ = chưa vào router.
     // Mức sóng RSSI xem ở tooltip.
-    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? '📶❗' : '❌');
+    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? ' 📶❗' : '❌');
     iconEl.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
     if (currentStaQual <= 0) {
       iconEl.title = 'Not joined any router';
@@ -1316,6 +1360,8 @@ function updateMotionControls() {
   const manualSelectors = ['#btn-up', '#btn-down', '#btn-left', '#btn-right'];
   const automaticSelectors = [
     '#align-btn', '#align-az-btn', '#align-alt-btn', '#return-home-btn',
+    '#align-alt-btn-mobile',
+    '#save-aligned-btn', '#fallback-aligned-btn',
     '#calib-az-btn', '#calib-alt-btn', '#calib-all-btn',
     'button[onclick*="startTuning"]', 'button[onclick*="startTuningTcool"]'
   ];
@@ -1461,14 +1507,16 @@ function collectConfig() {
       az_spread_cycle: document.getElementById('az-mode-spreadcycle').checked,
       alt_spread_cycle: document.getElementById('alt-mode-spreadcycle').checked,
       show_steps: document.getElementById('show-steps').checked,
-      az_sg_thrs: Array.from({length: 5}, (_, i) => parseInt(document.getElementById(`az-sg-${i+1}`).value) || 110),
-      alt_sg_thrs: Array.from({length: 5}, (_, i) => parseInt(document.getElementById(`alt-sg-${i+1}`).value) || 110),
-      az_tcool_presets: [2, 4, 8, 16, 32, 64].map(ms => parseInt(document.getElementById(`az-tcool-${ms}`).value) || 0),
-      alt_tcool_presets: [2, 4, 8, 16, 32, 64].map(ms => parseInt(document.getElementById(`alt-tcool-${ms}`).value) || 0),
-      stall_time: parseInt(document.getElementById('stall-time').value),
-      escape_rotations: parseInt(document.getElementById('escape-rotations').value),
-      enable_hardlimit: document.getElementById('enable-hardlimit').checked,
-      show_hardlimit_monitor: document.getElementById('show-hardlimit-monitor').checked,
+      enable_beep: document.getElementById('enable-beep') ? document.getElementById('enable-beep').checked : true,   // #21: tick = có tiếng
+      // #26: thẻ Hardlimit đã ẩn khỏi UI ⇒ ưu tiên DOM nếu có (mở lại comment), không có thì lấy cache
+      az_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`az-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.az_sg_thrs ? (_hlCache.az_sg_thrs[i] || 110) : 110); }),
+      alt_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`alt-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.alt_sg_thrs ? (_hlCache.alt_sg_thrs[i] || 110) : 110); }),
+      az_tcool_presets: [2, 4, 8, 16, 32, 64].map((ms, idx) => { const el = document.getElementById(`az-tcool-${ms}`); return el ? (parseInt(el.value) || 0) : (_hlCache.az_tcool_presets ? (_hlCache.az_tcool_presets[idx] || 0) : 0); }),
+      alt_tcool_presets: [2, 4, 8, 16, 32, 64].map((ms, idx) => { const el = document.getElementById(`alt-tcool-${ms}`); return el ? (parseInt(el.value) || 0) : (_hlCache.alt_tcool_presets ? (_hlCache.alt_tcool_presets[idx] || 0) : 0); }),
+      stall_time: document.getElementById('stall-time') ? parseInt(document.getElementById('stall-time').value) : (_hlCache.stall_time !== null ? _hlCache.stall_time : 255),
+      escape_rotations: document.getElementById('escape-rotations') ? parseInt(document.getElementById('escape-rotations').value) : (_hlCache.escape_rotations !== null ? _hlCache.escape_rotations : 3),
+      enable_hardlimit: document.getElementById('enable-hardlimit') ? document.getElementById('enable-hardlimit').checked : (_hlCache.enable_hardlimit !== null ? _hlCache.enable_hardlimit : false),
+      show_hardlimit_monitor: document.getElementById('show-hardlimit-monitor') ? document.getElementById('show-hardlimit-monitor').checked : (_hlCache.show_hardlimit_monitor !== null ? _hlCache.show_hardlimit_monitor : false),
       swap_az_alt: document.getElementById('swap-az-alt') ? document.getElementById('swap-az-alt').checked : false
     },
     serial: {
@@ -1502,12 +1550,15 @@ function collectConfig() {
       ip: document.getElementById('ap-ip').value,
       subnet: document.getElementById('ap-subnet').value,
     },
+    // #23: tên mDNS (firmware tự lọc ký tự hợp lệ; đổi tên cần SAVE ALL & REBOOT)
+    mdns_name: document.getElementById('mdns-name') ? document.getElementById('mdns-name').value.replace(/[^A-Za-z0-9-]/g, '').slice(0, 31) : '',
     align_mode: {
       simultaneous: document.getElementById('align-all-mode-simultaneous') ? document.getElementById('align-all-mode-simultaneous').checked : true
     },
     // Cờ admin cần SAVE & REBOOT: chỉ gửi kèm payload khi bấm SAVE (Apply bỏ qua cờ này).
     admin: {
-      reject_second_webclient: document.getElementById('reject-second-webclient') ? document.getElementById('reject-second-webclient').checked : false
+      reject_second_webclient: document.getElementById('reject-second-webclient') ? document.getElementById('reject-second-webclient').checked : false,
+      mute_all_errors: document.getElementById('mute-all-errors') ? document.getElementById('mute-all-errors').checked : false   // #22: Test mode - khoá mọi báo lỗi
     }
   };
 }
@@ -1526,8 +1577,8 @@ function applyConfigOnly() {
     // tránh chờ 5s rồi hiện "No confirmation" mơ hồ.
     window._applyAckPending = false;
     showMessage(systemLocked
-      ? '🔒 Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
-      : '⚠️ WebSocket not connected. Cannot apply settings.',
+      ? '⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
+      : '⚠ WebSocket not connected. Cannot apply settings.',
       '#save-message', 8000);
     return;
   }
@@ -1536,7 +1587,7 @@ function applyConfigOnly() {
   setTimeout(() => {
     if (window._applyAckPending) {
       window._applyAckPending = false;
-      showMessage('⚠️ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.', '#save-message', 8000);
+      showMessage('⚠ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.', '#save-message', 8000);
     }
   }, 5000);
 }
@@ -1580,8 +1631,8 @@ if(saveAllBtn) saveAllBtn.addEventListener('click', () => {
     if (msgEl) {
       msgEl.style.display = 'block';
       msgEl.textContent = systemLocked
-        ? '🔒 Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
-        : '⚠️ WebSocket not connected. Cannot save settings.';
+        ? '⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
+        : '⚠ WebSocket not connected. Cannot save settings.';
     }
     return;
   }
@@ -1593,7 +1644,7 @@ if(saveAllBtn) saveAllBtn.addEventListener('click', () => {
       window._saveFlow = null;
       if (msgEl) {
         msgEl.style.display = 'block';
-        msgEl.textContent = '⚠️ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.';
+        msgEl.textContent = '⚠ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.';
       }
     }
   }, 7000);
@@ -1860,6 +1911,44 @@ if(alignBtn) alignBtn.addEventListener('click', () => {
   });
 });
 
+// ===== SAVE ALIGNED POSITION (#27) =====
+// Chỉ lưu khi hệ thống đang READY; chưa READY thì báo modal "vị trí chưa được cố định".
+const saveAlignedBtn = document.getElementById('save-aligned-btn');
+if (saveAlignedBtn) {
+  saveAlignedBtn.addEventListener('click', () => {
+    if (currentSystemStatus !== 'READY') {
+      showModal(
+        'Position Not Fixed',
+        'The RPA is not <strong>READY</strong> yet (status: ' + (currentSystemStatus || 'unknown') + ').<br><br>' +
+        'The aligned position can only be saved when both axes have stopped - wait for the READY status, then press <strong>SAVE ALIGNED POSITION</strong>.',
+        [{ text: 'OK', class: 'btn-warning' }]
+      );
+      return;
+    }
+    sendCommand('saveAlignedPosition', {});
+  });
+}
+
+// ===== FALLBACK SAVED POSITION (#27) =====
+// Quay 2 trục về vị trí PA đã lưu trước đó (cần xác nhận vì nó sẽ di chuyển mount).
+const fallbackAlignedBtn = document.getElementById('fallback-aligned-btn');
+if (fallbackAlignedBtn) {
+  fallbackAlignedBtn.addEventListener('click', () => {
+    showModal(
+      'Fallback Saved Position',
+      'Move both axes back to the <strong>last saved aligned position</strong>?<br><br>Make sure nothing can hit the mount while it moves.',
+      [
+        {
+          text: 'Yes, Fallback',
+          class: 'btn-warning',
+          callback: () => { sendCommand('fallbackAlignedPosition', {}); }
+        },
+        { text: 'Cancel', class: 'btn-secondary' }
+      ]
+    );
+  });
+}
+
 // Align Az Only Button
 const alignAzBtn = document.getElementById('align-az-btn');
 if(alignAzBtn) alignAzBtn.addEventListener('click', () => {
@@ -1883,12 +1972,11 @@ if(alignAzBtn) alignAzBtn.addEventListener('click', () => {
   sendCommand('align', { ra_error: azError, dec_error: 0 });
 });
 
-// Align Alt Only Button
-const alignAltBtn = document.getElementById('align-alt-btn');
-if(alignAltBtn) alignAltBtn.addEventListener('click', () => {
-  if (!isSystemHomed) { 
+// Align Alt Only Button (2 phần tử: trong nhóm Alt trên desktop, hàng riêng trên mobile - #27)
+function runAlignAltOnly() {
+  if (!isSystemHomed) {
     showModal('Action Blocked', 'You have not set a home position yet.', [{ text: 'OK', class: 'btn-warning' }]);
-    return; 
+    return;
   }
   // Tự động lưu cấu hình ALT
   const config = {
@@ -1904,6 +1992,10 @@ if(alignAltBtn) alignAltBtn.addEventListener('click', () => {
   sendCommand('saveConfig', config);
   const altError = getErrorValue('alt', 'alt-dir');
   sendCommand('align', { ra_error: 0, dec_error: altError });
+}
+['align-alt-btn', 'align-alt-btn-mobile'].forEach((id) => {
+  const btn = document.getElementById(id);
+  if (btn) btn.addEventListener('click', runAlignAltOnly);
 });
 
 // ===== WIFI SCAN & CONNECT =====
@@ -1924,12 +2016,13 @@ if (scanWifiBtn) {
 const _passFetchPending = { sta: false, ap: false };
 // Ô mật khẩu để TRỐNG = giữ nguyên pass hiện tại ⇒ hiển thị 8 dấu * (placeholder) thay cho dòng chữ dài.
 const PASS_BLANK_PLACEHOLDER = '********';
-// Icon con mắt: 👁 = đang hiện password; thêm class `is-off` = đang ẩn (gạch chéo).
-const _EYE_ICON = '👁';
+// Icon sprite dùng chung cho các chỗ JS vẽ icon (trạng thái AP/STA, mắt password, homing...).
+function svgIco(id) { return '<svg class="ico" aria-hidden="true"><use href="#' + id + '"/></svg>'; }
 
+// Icon con mắt: i-eye = đang hiện password, i-eye-off = đang ẩn (class `is-off` giữ trạng thái).
 function setEyeIcon(btn, visible) {
   if (!btn) return;
-  btn.textContent = _EYE_ICON;
+  btn.innerHTML = svgIco(visible ? 'i-eye' : 'i-eye-off');
   btn.classList.toggle('is-off', !visible);
 }
 
@@ -1940,7 +2033,7 @@ function requestPassword(which) {
 
   _passFetchPending[which] = true;
   if (btn) {
-    btn.textContent = '⏳';
+    btn.innerHTML = svgIco('i-spin');
     btn.classList.remove('is-off');
   }
   input.placeholder = 'Requesting from device...';
@@ -2061,7 +2154,7 @@ const factoryResetBtn = document.getElementById('factory-reset-btn');
 if (factoryResetBtn) {
   factoryResetBtn.addEventListener('click', () => {
     showModal(
-      '⚠️ Factory Reset',
+      '⚠ Factory Reset',
       '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>admin password</strong> to confirm:' +
       '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Admin password" autocomplete="off">',
       [
@@ -2179,7 +2272,7 @@ function renderWifiList(networks) {
   networks.forEach(net => {
     const itemContainer = document.createElement('div');
     itemContainer.className = 'wifi-item';
-    itemContainer.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? '🔒' : '🔓'}</span>`;
+    itemContainer.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? svgIco('i-lock') : svgIco('i-unlock')}</span>`;
     itemContainer.addEventListener('click', () => {
       document.getElementById('wifi-ssid').value = net.ssid;
       hideModal();
@@ -2188,7 +2281,7 @@ function renderWifiList(networks) {
     listContainer.appendChild(itemContainer);
     const item = document.createElement('div');
     item.className = 'wifi-item';
-    item.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? '🔒' : '🔓'}</span>`;
+    item.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? svgIco('i-lock') : svgIco('i-unlock')}</span>`;
   });
   modalTitle.textContent = 'Select WiFi Network'; // Update title
 }
@@ -2270,7 +2363,7 @@ function appendSerialLog(dir, message) {
   // Đánh dấu dòng polling/telemetry phản hồi để checkbox "Hide polling..." có thể ẩn
   if (isPolling) entry.classList.add('serial-log-poll');
   const safe = msgStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  entry.textContent = `[${time}] ${dir === 'RX' ? '⬇ RX' : '⬆ TX'} ${safe}`;
+  entry.textContent = `[${time}] ${dir === 'RX' ? '▼ RX' : '▲ TX'} ${safe}`;
   const container = document.getElementById('serial-log');
   if (!container) return;
   if (container.querySelector('.history-empty')) container.innerHTML = '';
@@ -4326,6 +4419,21 @@ window.addEventListener('load', () => {
   initCollapsibles(); // Init panels
   initControlMode(); // Init control mode
   initMotorModeChangeHandlers(); // Logic SpreadCycle -> Disable Hardlimit
+
+  // #23: ô mDNS name — lọc ký tự (chữ/số/gạch ngang, ≤31) + hậu tố ".local" bám ngay sau tên đang gõ
+  (function initMdnsNameInput() {
+    const el = document.getElementById('mdns-name');
+    const ghost = document.getElementById('mdns-ghost-text');
+    if (!el) return;
+    const upd = () => {
+      const clean = el.value.replace(/[^A-Za-z0-9-]/g, '').slice(0, 31);
+      if (clean !== el.value) el.value = clean;
+      if (ghost) ghost.textContent = el.value || el.placeholder || '';
+    };
+    el.addEventListener('input', upd);
+    el.addEventListener('change', upd);
+    upd();
+  })();
 
   // Tự động trả về giới hạn cho max-speed
   const maxSpeedInput = document.getElementById('max-speed');
