@@ -155,7 +155,7 @@ Finally, use **💾 Configuration Management** to commit your changes:
 | **⚡ APPLY SETTINGS** | Apply to RAM only — lost on reboot. Good for quick tests. |
 | **✓ SAVE ALL & REBOOT** | Persist everything to FRAM and reboot. Use this to keep changes. |
 | **⏻ REBOOT** | Reboot without saving (discards unapplied changes). |
-| **⚠️ FACTORY RESET** | Restore factory defaults. |
+| **⚠️ FACTORY RESET** | Restore factory defaults. The confirmation modal asks for the **admin password** (default: `password`) so it cannot be triggered by accident. |
 
 ##### 3.4.1 CONFIG reference (in detail)
 
@@ -224,7 +224,7 @@ This commands the motor to travel `backlashSteps` **extra** steps — exactly wh
 
 ###### 🔑 Admin Config
 
-This panel is locked — press **🔑 Admin Config** in *Configuration Management* and enter the password (default: `AstroLab`).
+This panel is locked — press **🔑 Admin Config** in *Configuration Management* and enter the password (default: `password`).
 
 | Setting | Meaning |
 |---|---|
@@ -274,7 +274,7 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 | **✓ SAVE ALL & REBOOT** | Persist everything to FRAM and reboot — the required final step to keep changes. |
 | **⏻ REBOOT** | Reboot without saving (discards unapplied changes). |
 | **🔑 Admin Config** | Unlock the Admin panel (password prompt). |
-| **⚠️ FACTORY RESET** | Erase **all** settings (WiFi, motor, limits, tuning, password) and restore factory defaults — **cannot be undone**. |
+| **⚠️ FACTORY RESET** | Erase **all** settings (WiFi, motor, limits, tuning, password) and restore factory defaults — **cannot be undone**. The confirmation modal asks for the **admin password** (default: `password`). |
 
 #### 3.5 First-time setup — quick sequence
 

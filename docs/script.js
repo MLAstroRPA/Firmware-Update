@@ -609,6 +609,18 @@ function updateUI(data) {
     }
   }
 
+  // Xử lý phản hồi Factory Reset (chỉ chạy khi mật khẩu admin đúng)
+  if (data.cmd === 'factoryReset') {
+    if (data.result) {
+      hideModal();
+      showMessage('Factory reset accepted. Device is rebooting...', '#save-message', 8000);
+    } else {
+      showMessage('⚠ Wrong admin password. Factory reset cancelled.', '#save-message', 4000);
+      const passEl = document.getElementById('factory-reset-pass');
+      if (passEl) { passEl.value = ''; passEl.focus(); }
+    }
+  }
+
   // Xử lý kết quả Calibration
   if (data.cmd === 'calibResult') {
     if (data.axis === 'all') {
@@ -2050,14 +2062,22 @@ if (factoryResetBtn) {
   factoryResetBtn.addEventListener('click', () => {
     showModal(
       '⚠️ Factory Reset',
-      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Are you sure?',
+      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>admin password</strong> to confirm:' +
+      '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Admin password" autocomplete="off">',
       [
         {
           text: 'Yes, Factory Reset',
           class: 'btn-danger',
+          closeOnClick: false,
           callback: () => {
-            sendCommand('factoryReset', {});
-            showMessage('Factory reset initiated. Device is rebooting...', '#save-message', 8000);
+            const passEl = document.getElementById('factory-reset-pass');
+            const pass = passEl ? passEl.value : '';
+            if (!pass) {
+              showMessage('⚠ Enter the admin password to confirm.', '#save-message', 3000);
+              if (passEl) passEl.focus();
+              return;
+            }
+            sendCommand('factoryReset', { pass: pass });
           }
         },
         { text: 'Cancel', class: 'btn-secondary' }
