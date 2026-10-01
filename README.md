@@ -144,7 +144,7 @@ The **📐 Position** panel shows current Azimuth/Altitude (from home), step cou
 #### 3.4 CONFIG & SAVE (🛠️ CONFIG tab)
 
 - **⚙️ Motor Driver (TMC2209)** — per-axis **Run/Hold current**, **Start-up Booster**, **Soft CoolStep**, **Microsteps**, **Accel/Decel**, **Steps/Degree**, **StealthChop / SpreadCycle** mode and **Reverse Direction**.
-- **↔️ Backlash & P.A Overshoot** — anti-backlash compensation in steps, and the Alt P.A overshoot (direction + amount) used by the two-leg alignment move.
+- **↔️ Backlash** — anti-backlash compensation in steps.
 - **📶 WiFi Configuration** — Access Point (SSID/password/IP) and Station mode (connect to your router, scan for networks, see connected clients).
 - **🔑 Admin Config** — serial port settings, swap Az-Alt motor ports (reboot required), show hardlimit monitor / steps, factory zero, max motor RPM, sensorless auto tuning, travel calibration, and password change.
 
@@ -198,13 +198,11 @@ Configured independently for the **AZ Motor** and **ALT Motor** (tick **Reverse 
 | **Steps/Degree** | Steps per degree (5-decimal precision). If unknown, run **Travel Calibration**. |
 | **Mode: StealthChop / SpreadCycle** | StealthChop = quiet, for light load. SpreadCycle = stronger, more precise at speed, better for stall detection. |
 
-###### ↔️ Backlash & P.A Overshoot
+###### ↔️ Backlash
 
 - **Enable Anti Backlash on firmware** — compensate for gear backlash in firmware.
 - **AZ Backlash / ALT Backlash (steps)** — compensation steps applied on every direction change.
-- **Enable Alt P.A Overshoot** — "move past the target, then back" for the Alt axis during polar-alignment moves (avoids backlash error).
-- **Move up / Move down overshoot** — which directions get the overshoot.
-- **Overshoot Amount (° ' ")** — how far past the target to go (Degrees / Minutes / Seconds).
+
 
 **How it works — Backlash compensation**
 
@@ -216,43 +214,7 @@ The firmware tracks the last travel direction of each axis. When a new move is i
 distanceToGo = target − (currentPosition ∓ backlashSteps)
 ```
 
-This commands the motor to travel `backlashSteps` **extra** steps — exactly what is needed to take up the mechanical play — so the output lands precisely on the target. The compensation is applied on every direction change during **Align Az/Alt** (including the second leg of the Alt overshoot move) and **Return to Home**. To tune it, measure the play of each axis and enter it as steps; too small leaves residual error, too large overshoots.
-
-**How it works — Alt P.A Overshoot (two-leg move)**
-
-The Alt axis carries the weight of the scope. If the motor simply drove straight to the target and stopped, the final resting position would depend on the last approach direction (play + gravity), giving inconsistent results.
-
-Instead, the firmware makes a **two-leg move** so the final approach always comes from a fixed direction:
-
-1. **Leg 1 — overshoot past the target:** it computes the overshoot in steps from the entered angle (`deg + min/60 + sec/3600` × `Steps/Degree`) and first drives **past** the target by that amount.
-2. **Leg 2 — return to the real target:** as soon as leg 1 finishes, it automatically reverses and moves back to the exact target, applying backlash compensation on this second direction change. The axis therefore always seats the same way.
-
-```mermaid
-sequenceDiagram
-    participant UI as Web UI (Align Alt)
-    participant FW as Firmware
-    participant M as Alt Motor
-
-    UI->>FW: align (alt error, overshoot amount)
-    FW->>FW: compute target & overshoot steps
-    Note over FW: check direction + soft/hard limits
-    FW->>M: Leg 1: move past target (+ overshoot)
-    M-->>FW: distanceToGo == 0
-    FW->>FW: apply backlash compensation (if enabled)
-    FW->>M: Leg 2: move back to final target
-    M-->>FW: stop exactly at target
-```
-
-The **Move up / Move down overshoot** checkboxes decide which correction direction gets the overshoot (the final approach is always the **opposite** of that direction):
-
-| Checkbox | Alt correction runs | Leg 1 goes | Leg 2 (final) comes back |
-|---|---|---|---|
-| **Move up overshoot** | **Up** | past target, further up | **down** to target |
-| **Move down overshoot** | **Down** | past target, further down | **up** to target |
-
-Default is **down only** (final approach from below) — for a gravity-loaded altitude axis this keeps the drive pressed against the load on the last leg for a stable, repeatable seat.
-
-The overshoot runs only when: an Alt correction is requested, **Enable Alt P.A Overshoot** is on, the overshoot amount is > 0, the correction direction matches a selected overshoot direction, and the leg-1 target stays inside the **Soft Limits** (otherwise the move is cancelled with an "out of limit" alert).
+This commands the motor to travel `backlashSteps` **extra** steps — exactly what is needed to take up the mechanical play — so the output lands precisely on the target. The compensation is applied on every direction change during **Align Az/Alt** and **Return to Home**. To tune it, measure the play of each axis and enter it as steps; too small leaves residual error, too large overshoots.
 
 ###### 📶 WiFi Configuration
 
