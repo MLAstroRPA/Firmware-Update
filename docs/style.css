@@ -156,6 +156,8 @@ body {
   font-size: 12px;
   line-height: 1;
   vertical-align: -1px;
+  /* Badge là EMOJI MÀU (✨) — không ép về dạng chữ đơn sắc */
+  font-variant-emoji: emoji;
 }
 
 .header-status {
@@ -310,7 +312,6 @@ h3,
 .btn,
 label,
 .toggle-icon,
-.fw-new-badge,
 .pass-eye-btn,
 .ota-install-success-icon,
 .connection-locked-icon {

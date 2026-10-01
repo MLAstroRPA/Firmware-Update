@@ -3854,13 +3854,14 @@ function failBrowserOtaStep(reason) {
 // Chỉ CLIENT tự kiểm tra (user chốt 2026-09-23). Lý do: máy có thể chạy 24/7 nên firmware KHÔNG
 // dò lúc boot (sẽ bỏ lỡ bản mới) — kiểm tra mỗi lần người dùng mở Web UI là hợp lý nhất:
 //   1) Kết quả lần trước ở localStorage ⇒ hiện ✨ TỨC THÌ, không chờ mạng.
-//   2) Cache cũ hơn 30 phút ⇒ client tải meta.json (~6 KB, timeout 6 s) để biết version mới nhất.
-//   3) Không lấy được ⇒ không hiện gì (chỉ ghi log), không nháy UI.
+//   2) Rồi LUÔN dò lại ở chế độ nền (chỉ khi trang đã rảnh) ⇒ bản vừa phát hành hiện ra ngay ở lần
+//      mở Web UI kế tiếp. (Trước đây cache < 30 phút thì BỎ QUA dò nên tab đang mở/bản vừa release
+//      không thấy ✨ cho tới khi cache hết hạn.)
+//   3) Không lấy được ⇒ giữ nguyên kết quả cache (chỉ ghi log), không nháy UI.
 // Mọi lần dò đều ghi vào bảng log trên web: cả timeout lẫn thời gian + dung lượng nhận được.
 // Bấm vào số version (hoặc ✨) ⇒ mở lại trang với `?updates=1` để tự bật modal "Available Updates".
 const FW_CHECK_CACHE_KEY = 'fwUpdateCheck';
-const FW_CHECK_TTL_MS = 6 * 60 * 60 * 1000;    // dùng cache để hiện ✨ tối đa 6 giờ
-const FW_CHECK_REVALIDATE_MS = 30 * 60 * 1000; // cache cũ hơn 30 phút ⇒ dò lại ở chế độ nền
+const FW_CHECK_TTL_MS = 6 * 60 * 60 * 1000;    // cache CHỈ để hiện ✨ tức thì (tối đa 6 giờ)
 const FW_CLIENT_FETCH_TIMEOUT_MS = 1000;       // tải meta.json (~6 KB): quá 1 s là bỏ qua ngay,
                                                // để trang chạy tiếp bình thường (không chờ mạng)
 
@@ -4006,11 +4007,8 @@ function startFwUpdateCheck() {
   if (cached) {
     fwNewestVersion = cached.newest; // ✨ hiện ngay, không chờ mạng
     refreshFwUpdateBadge();
-    if (Date.now() - Number(cached.ts) < FW_CHECK_REVALIDATE_MS) {
-      // Chỉ log khi cache cho thấy có bản mới hơn bản đang chạy (bằng/nhỏ hơn ⇒ im lặng)
-      logFwNewVersionIfAny(cached.newest, FW_CHECK_TAG_CACHE);
-      return; // còn mới ⇒ khỏi gọi mạng
-    }
+    // Chỉ log khi cache cho thấy có bản mới hơn bản đang chạy (bằng/nhỏ hơn ⇒ im lặng)
+    logFwNewVersionIfAny(cached.newest, FW_CHECK_TAG_CACHE);
   }
 
   const runWhenIdle = () => setTimeout(runFwUpdateCheck, 800);
