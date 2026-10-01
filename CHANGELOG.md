@@ -4,6 +4,18 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.10.0] - 2026-10-01
+
+### Added — Telemetry reports the STA signal strength (`rssi`) so the Web UI header and the plugin grade the signal bars from the real value
+
+### Fixed — STOP decelerates with the configured ramp instead of stopping the axis instantly: both axes ramp down while they are moving, the far target is only cancelled when an axis is already standing, and a 2.5 s safety net hard-cancels a ramp that does not finish
+
+### Changed — FORCE-COPY reads the version from `src/main.cpp` (`FIRMWARE_VERSION`, the single source) instead of the header text, so an export can no longer pick a wrong number
+
+### Changed — AP icon colour in the header tuned to #3498db
+
+---
+
 ## [1.9.0] - 2026-10-01
 
 ### Added — Test & monitor group box in Admin Config with "Mute all error alerts (test mode)"

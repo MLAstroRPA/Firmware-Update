@@ -24,6 +24,10 @@
     <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9.5a14 14 0 0 1 18 0M6.5 13.5a9 9 0 0 1 11 0M10 17.5a4 4 0 0 1 4 0"/><circle cx="12" cy="20.6" r="1.2"/></symbol>
     <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M3 9.5a14 14 0 0 1 18 0M6.5 13.5a9 9 0 0 1 11 0M10 17.5a4 4 0 0 1 4 0M4 4l16 16"/></symbol>
     <symbol id="i-bar" viewBox="0 0 24 24"><path d="M4.5 20V10M10 20V4.5M15.5 20v-6M21 20V8"/></symbol>
+    <symbol id="i-sig1" viewBox="0 0 24 24"><rect x="2.5" y="16" width="3.5" height="4.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="7.7" y="12" width="3.5" height="8.5" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/><rect x="12.9" y="7.5" width="3.5" height="13" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/><rect x="18.1" y="3" width="3.5" height="17.5" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/></symbol>
+    <symbol id="i-sig2" viewBox="0 0 24 24"><rect x="2.5" y="16" width="3.5" height="4.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="7.7" y="12" width="3.5" height="8.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="12.9" y="7.5" width="3.5" height="13" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/><rect x="18.1" y="3" width="3.5" height="17.5" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/></symbol>
+    <symbol id="i-sig3" viewBox="0 0 24 24"><rect x="2.5" y="16" width="3.5" height="4.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="7.7" y="12" width="3.5" height="8.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="12.9" y="7.5" width="3.5" height="13" rx="1.2" fill="currentColor" stroke="none"/><rect x="18.1" y="3" width="3.5" height="17.5" rx="1.2" fill="currentColor" stroke="none" opacity=".22"/></symbol>
+    <symbol id="i-sig4" viewBox="0 0 24 24"><rect x="2.5" y="16" width="3.5" height="4.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="7.7" y="12" width="3.5" height="8.5" rx="1.2" fill="currentColor" stroke="none"/><rect x="12.9" y="7.5" width="3.5" height="13" rx="1.2" fill="currentColor" stroke="none"/><rect x="18.1" y="3" width="3.5" height="17.5" rx="1.2" fill="currentColor" stroke="none"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.2l7.5 2.6v5.7c0 4.9-3 7.6-7.5 9.3-4.5-1.7-7.5-4.4-7.5-9.3V5.8z"/><path d="M9 12l2 2 4-4"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></symbol>
     <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 0 1 7.5-1.9"/></symbol>
@@ -57,8 +61,8 @@
           <p class="brand-subtitle">Robotic Polar Alignment</p>
           <div class="version-info">
             <!-- Bấm số firmware (hoặc ngôi sao) = mở lại trang với ?updates=1 ⇒ tự bật modal update -->
-            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.9.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
-            <span id="display-spiffs-ver" style="display:none;">spiffs 1.9.0</span>
+            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.10.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
+            <span id="display-spiffs-ver" style="display:none;">spiffs 1.10.0</span>
           </div>
         </div>
       </div>
@@ -76,7 +80,7 @@
             </div>
             <div class="status-item link-row">
               <span class="label">STA:</span>
-              <span id="sta-quality-icon" class="wifi-status" title="Not joined any router">❌</span>
+              <span id="sta-quality-icon" class="wifi-status" title="Not joined any router"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></span>
               <span id="sta-ip" class="link-value">-</span>
             </div>
             <!-- Dropdown theme nằm NGAY DƯỚI dòng STA (cùng cột với Status/AP/STA) -->

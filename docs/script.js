@@ -1295,30 +1295,38 @@ function renderNetworkRows() {
   const ipEl = document.getElementById('sta-ip');
 
   if (apEl) {
-    // Nhãn "AP:" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ, dạng icon màu:
-    //   🟢 = CHÍNH PC đi qua hotspot · 🛜 = AP đã lên nhưng PC đi đường khác · ❌ = AP lỗi
+    // Nhãn "AP:" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ, dạng icon SVG:
+    //   i-wifi XANH BLUE NHẠT = AP đã lên (đậm khi CHÍNH PC đi qua hotspot, mờ khi PC đi đường khác)
+    //   · i-wifi-off màu ĐỎ = AP lỗi. Phần IP giữ nguyên màu mờ như trước.
     if (currentApReady === true) {
       const ip = currentApIp ? ` ${currentApIp}` : '';
-      apEl.textContent = (currentLinkPath === 'AP' ? '🟢' : '🛜') + ip;
+      const tint = currentLinkPath === 'AP' ? 'wifi-text-ap' : 'wifi-text-ap-dim';
+      apEl.innerHTML = `<span class="${tint}">${svgIco('i-wifi')}</span>` + ip;
     } else if (currentApReady === false) {
-      apEl.textContent = '❌';
+      apEl.innerHTML = `<span class="wifi-text-danger">${svgIco('i-wifi-off')}</span>`;
     } else {
       apEl.textContent = '-';
     }
   }
 
   if (iconEl) {
-    // Icon chất lượng đường STA (emoji màu — trình duyệt tự tô nên KHÔNG đổi màu được):
-    // 📶 = có internet · 📶❗ = có router nhưng không internet · ❌ = chưa vào router.
-    // Mức sóng RSSI xem ở tooltip.
-    iconEl.textContent = currentStaQual >= 2 ? '📶' : (currentStaQual === 1 ? ' 📶❗' : '❌');
+    // Icon chất lượng đường STA = SVG vạch sóng (nét/fill lấy currentColor nên tô màu được theo trạng thái):
+    //   chưa vào router → ✕ đỏ · đã vào router → 4 vạch theo RSSI (vạch chưa đạt mờ 22%).
+    //   Màu: xanh = có internet · vàng = có router nhưng không internet. Mức sóng xem ở tooltip.
     iconEl.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
     if (currentStaQual <= 0) {
+      iconEl.innerHTML = svgIco('i-x');
+      iconEl.classList.add('wifi-text-danger');
       iconEl.title = 'Not joined any router';
-    } else if (currentRssi <= -100) {
-      iconEl.title = 'Joined the router (no signal reading)';
     } else {
-      iconEl.title = `Signal: ${currentRssi} dBm`;
+      iconEl.classList.add(currentStaQual >= 2 ? 'wifi-text-success' : 'wifi-text-warning');
+      if (currentRssi <= -100) {
+        iconEl.innerHTML = svgIco('i-wifi');
+        iconEl.title = 'Joined the router (no signal reading)';
+      } else {
+        iconEl.innerHTML = svgIco(signalIconId());
+        iconEl.title = `Signal: ${currentRssi} dBm`;
+      }
     }
   }
 
@@ -1327,7 +1335,15 @@ function renderNetworkRows() {
   }
 }
 
-// RSSI của đường STA: chỉ cập nhật mức sóng rồi vẽ lại (KHÔNG ghi đè ký tự chất lượng 📶/📶!/📶x).
+// Mức sóng STA theo RSSI (dBm) → id symbol vạch sóng: ≥ −60 = 4 vạch · −70…−60 = 3 · −80…−70 = 2 · < −80 = 1.
+function signalIconId() {
+  if (currentRssi >= -60) return 'i-sig4';
+  if (currentRssi >= -70) return 'i-sig3';
+  if (currentRssi >= -80) return 'i-sig2';
+  return 'i-sig1';
+}
+
+// RSSI của đường STA: chỉ cập nhật mức sóng rồi vẽ lại (KHÔNG ghi đè trạng thái vào-router/có-internet).
 function updateWifiIcon(rssi) {
   currentRssi = Number(rssi);
   if (!Number.isFinite(currentRssi)) currentRssi = -1000;

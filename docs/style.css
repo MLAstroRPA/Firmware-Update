@@ -229,6 +229,9 @@ body {
   font-size: 11px;
   font-family: monospace;
   opacity: 0.9;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .status-rows .link-row .link-value {
@@ -262,8 +265,16 @@ body {
   font-size: 16px;
   line-height: 1;
   cursor: help;
-  /* Icon chất lượng đường STA là EMOJI MÀU (📶 / 📶❗ / ❌) ⇒ không ép về dạng chữ đơn sắc */
-  font-variant-emoji: emoji;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Icon AP/STA ở header: cùng cỡ 18px, nét đậm hơn cho dễ đọc ở cỡ nhỏ. */
+.status-rows .link-row .ico {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.1;
+  vertical-align: 0;
 }
 
 /* TAB NAVIGATION (inside header) */
@@ -1890,6 +1901,8 @@ input, textarea {
 .wifi-text-success { color: var(--success); }
 .wifi-text-warning { color: #f1c40f; }
 .wifi-text-danger { color: var(--danger); }
+.wifi-text-ap { color: #3498db; }
+.wifi-text-ap-dim { color: #3498db; opacity: 0.5; }
 
 .homing-status { margin-left: 10px; font-weight: bold; display: none; }
 .homing-running { color: orange; display: inline; }

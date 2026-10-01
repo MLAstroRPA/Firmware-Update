@@ -138,5 +138,19 @@
     "version": "1.9.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-01T09:31:19Z"
+  },
+  "firmware 1.10.0.bin": {
+    "description": "[v1.10.0] [New feat] telemetry reports the STA signal strength (RSSI) so the Web UI header and the NINA plugin grade the signal bars from the real value. [Fix] a soft STOP now ramps both axes down with the configured deceleration instead of stopping the axis dead (the far target was cancelled at once), with a 2.5 s safety net. [UI] AP icon colour tuned; the release export reads its version from src/main.cpp.",
+    "type": "firmware",
+    "version": "1.10.0",
+    "size_bytes": 1290992,
+    "release_date_utc": "2026-10-01T16:27:42Z"
+  },
+  "spiffs 1.10.0.bin": {
+    "description": "[v1.10.0] [New feat] telemetry reports the STA signal strength (RSSI) so the Web UI header and the NINA plugin grade the signal bars from the real value. [Fix] a soft STOP now ramps both axes down with the configured deceleration instead of stopping the axis dead (the far target was cancelled at once), with a 2.5 s safety net. [UI] AP icon colour tuned.",
+    "type": "spiffs",
+    "version": "1.10.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-01T16:27:42Z"
   }
 }
