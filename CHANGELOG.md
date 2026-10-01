@@ -11,7 +11,7 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ### Fixed — STOP decelerates with the configured ramp instead of stopping the axis instantly: both axes ramp down while they are moving, the far target is only cancelled when an axis is already standing, and a 2.5 s safety net hard-cancels a ramp that does not finish
 
 ### Changed — FORCE-COPY reads the version from `src/main.cpp` (`FIRMWARE_VERSION`, the single source) instead of the header text, so an export can no longer pick a wrong number
-
+### Added â€” Serial gets the two aligned-position commands `SvPA:1` / `FbPA:1` (save the current PA position / drive back to it), sharing one code path with the WebSocket pair `saveAlignedPosition` / `fallbackAlignedPosition` so both transports behave the same
 ### Changed — AP icon colour in the header tuned to #3498db
 
 ---
