@@ -1901,8 +1901,11 @@ input, textarea {
 .wifi-text-success { color: var(--success); }
 .wifi-text-warning { color: #f1c40f; }
 .wifi-text-danger { color: var(--danger); }
-.wifi-text-ap { color: #3498db; }
-.wifi-text-ap-dim { color: #3498db; opacity: 0.5; }
+/* Icon AP ở header: dùng ĐÚNG màu chữ tab đang chọn (--primary, tức xanh chữ CONFIG).
+   Bản "-dim" (AP đã lên nhưng phiên này đi đường khác) giữ cùng màu nhưng mờ 70 % —
+   trước đây để 50 % trên tông nhạt nên trông như bị ngả xám. */
+.wifi-text-ap { color: var(--primary); }
+.wifi-text-ap-dim { color: var(--primary); }
 
 .homing-status { margin-left: 10px; font-weight: bold; display: none; }
 .homing-running { color: orange; display: inline; }

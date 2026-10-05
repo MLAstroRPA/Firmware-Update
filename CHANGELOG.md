@@ -4,6 +4,12 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.11.0] - 2026-10-05
+
+### Added — Serial gets the mDNS hostname command `MDns:X` (letters, digits and hyphen, up to 31 characters; the firmware keeps it in RAM and writes FRAM on `Save&Reboot`) and reports the current name in the telemetry as `MDns:`, so the plugin can rename the device over the COM cable exactly like the Web UI does
+
+---
+
 ## [1.10.0] - 2026-10-01
 
 ### Added — Telemetry reports the STA signal strength (`rssi`) so the Web UI header and the plugin grade the signal bars from the real value
