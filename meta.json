@@ -157,7 +157,7 @@
     "description": "feat: change the mDNS hostname over Serial - MDns:X command (FRAM save on Save&Reboot) + MDns telemetry token so the plugin can rename the device like the Web UI",
     "type": "firmware",
     "version": "1.11.0",
-    "size_bytes": 1292128,
+    "size_bytes": 1292288,
     "release_date_utc": "2026-10-05T16:03:10Z"
   },
   "spiffs 1.11.0.bin": {

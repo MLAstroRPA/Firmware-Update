@@ -6,33 +6,33 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ## [1.11.0] - 2026-10-05
 
-### Added — Serial gets the mDNS hostname command `MDns:X` (letters, digits and hyphen, up to 31 characters; the firmware keeps it in RAM and writes FRAM on `Save&Reboot`) and reports the current name in the telemetry as `MDns:`, so the plugin can rename the device over the COM cable exactly like the Web UI does
-
+- Added — Serial gets the mDNS hostname command `MDns:X` (letters, digits and hyphen, up to 31 characters; the firmware keeps it in RAM and writes FRAM on `Save&Reboot`) and reports the current name in the telemetry as `MDns:`, so the plugin can rename the device over the COM cable exactly like the Web UI does
+### Fixed — the name received over Serial was kept in RAM only: `Save&Reboot` now writes it to FRAM, so the device really comes back with the new mDNS name (the first 1.11.0 build accepted `MDns:` but never stored it)
 ---
 
 ## [1.10.0] - 2026-10-01
 
-### Added — Telemetry reports the STA signal strength (`rssi`) so the Web UI header and the plugin grade the signal bars from the real value
+- Added — Telemetry reports the STA signal strength (`rssi`) so the Web UI header and the plugin grade the signal bars from the real value
 
-### Fixed — STOP decelerates with the configured ramp instead of stopping the axis instantly: both axes ramp down while they are moving, the far target is only cancelled when an axis is already standing, and a 2.5 s safety net hard-cancels a ramp that does not finish
+- Fixed — STOP decelerates with the configured ramp instead of stopping the axis instantly: both axes ramp down while they are moving, the far target is only cancelled when an axis is already standing, and a 2.5 s safety net hard-cancels a ramp that does not finish
 
-### Changed — FORCE-COPY reads the version from `src/main.cpp` (`FIRMWARE_VERSION`, the single source) instead of the header text, so an export can no longer pick a wrong number
-### Added â€” Serial gets the two aligned-position commands `SvPA:1` / `FbPA:1` (save the current PA position / drive back to it), sharing one code path with the WebSocket pair `saveAlignedPosition` / `fallbackAlignedPosition` so both transports behave the same
-### Changed — AP icon colour in the header tuned to #3498db
+- Changed — FORCE-COPY reads the version from `src/main.cpp` (`FIRMWARE_VERSION`, the single source) instead of the header text, so an export can no longer pick a wrong number
+- Added â€” Serial gets the two aligned-position commands `SvPA:1` / `FbPA:1` (save the current PA position / drive back to it), sharing one code path with the WebSocket pair `saveAlignedPosition` / `fallbackAlignedPosition` so both transports behave the same
+- Changed — AP icon colour in the header tuned to #3498db
 
 ---
 
 ## [1.9.0] - 2026-10-01
 
-### Added — Test & monitor group box in Admin Config with "Mute all error alerts (test mode)"
+- Added — Test & monitor group box in Admin Config with "Mute all error alerts (test mode)"
 
-### Added — Jog can be pressed repeatedly; a relative move locks the arrow buttons like an automatic run
+- Added — Jog can be pressed repeatedly; a relative move locks the arrow buttons like an automatic run
 
-### Added — Default mDNS name is now mlastrorpa.local
+- Added — Default mDNS name is now mlastrorpa.local
 
-### Changed — Travel Calibration and Sensorless Auto Tuning hidden from the UI; UI hints are English-only
+- Changed — Travel Calibration and Sensorless Auto Tuning hidden from the UI; UI hints are English-only
 
-### Fixed — The [WIFI][MDNS] up: line waits for the STA result and reports the real STA address
+- Fixed — The [WIFI][MDNS] up: line waits for the STA result and reports the real STA address
 
 ---
 
