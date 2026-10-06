@@ -14,6 +14,12 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.12.1] - 2026-10-06
+
+- Fixed — FACTORY RESET now writes a blank FRAM struct instead of only clearing `magic`: the appended fields (saved WiFi network list, mDNS name, beep, mute-errors, aligned position) used to survive the reset and the two preloaded networks were never restored
+
+---
+
 ## [1.11.0] - 2026-10-05
 
 - Added — Serial gets the mDNS hostname command `MDns:X` (letters, digits and hyphen, up to 31 characters; the firmware keeps it in RAM and writes FRAM on `Save&Reboot`) and reports the current name in the telemetry as `MDns:`, so the plugin can rename the device over the COM cable exactly like the Web UI does

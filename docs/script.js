@@ -2171,7 +2171,7 @@ if (factoryResetBtn) {
   factoryResetBtn.addEventListener('click', () => {
     showModal(
       '⚠ Factory Reset',
-      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>factory reset password</strong> (<code>password</code>) to confirm:' +
+      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, the saved WiFi network list, mDNS name, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>factory reset password</strong> (<code>password</code>) to confirm:' +
       '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Factory reset password" autocomplete="off">',
       [
         {
