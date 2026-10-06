@@ -180,5 +180,19 @@
     "version": "1.12.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-06T11:06:20Z"
+  },
+  "firmware 1.12.1.bin": {
+    "description": "fix: FACTORY RESET now wipes the whole FRAM - the stored WiFi network list, mDNS name, beep and mute-error flags return to factory defaults, and the two preloaded WiFi networks are restored on the next boot",
+    "type": "firmware",
+    "version": "1.12.1",
+    "size_bytes": 1298704,
+    "release_date_utc": "2026-10-06T13:31:12Z"
+  },
+  "spiffs 1.12.1.bin": {
+    "description": "fix: FACTORY RESET now wipes the whole FRAM - the stored WiFi network list, mDNS name, beep and mute-error flags return to factory defaults, and the two preloaded WiFi networks are restored on the next boot",
+    "type": "spiffs",
+    "version": "1.12.1",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-06T13:31:12Z"
   }
 }
