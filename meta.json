@@ -166,5 +166,19 @@
     "version": "1.11.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-05T16:03:10Z"
+  },
+  "firmware 1.12.0.bin": {
+    "description": "WiFi history (last 5 networks stored and tried in order at boot); STOPPING/STOPPED statuses; fixed factory-reset password",
+    "type": "firmware",
+    "version": "1.12.0",
+    "size_bytes": 1298704,
+    "release_date_utc": "2026-10-06T11:06:20Z"
+  },
+  "spiffs 1.12.0.bin": {
+    "description": "WiFi history (last 5 networks stored and tried in order at boot); STOPPING/STOPPED statuses; fixed factory-reset password",
+    "type": "spiffs",
+    "version": "1.12.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-06T11:06:20Z"
   }
 }

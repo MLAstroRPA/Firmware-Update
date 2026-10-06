@@ -941,6 +941,9 @@ label,
   padding: 4px 8px;
   border-bottom: 1px solid #eee;
   font-size: 12px;
+  /* Một số log là MỘT message nhiều dòng (vd danh sách WiFi trong lịch sử kết nối):
+     giữ nguyên '\n' để các mục xuống dòng riêng nhưng vẫn chung 1 mốc thời gian. */
+  white-space: pre-line;
 }
 
 .log-reset { color: darkorange; }

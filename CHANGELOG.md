@@ -4,10 +4,20 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.12.0] - 2026-10-06
+
+- Added — WiFi history: the firmware keeps the last 5 networks (SSID + password) in FRAM; a newly saved network goes to slot 1, a duplicate SSID is updated and moved up, the oldest entry is evicted but never the network that is currently connected, and an empty list is preloaded with the two factory networks
+- Added — the boot sequence walks the stored list and tries every network once (no double retry), logs a separate line per failed network, and moves the network that finally connects to slot 1 so the next boot matches on the first attempt
+- Added — new `STOPPING` status while a STOP ramps the axes down and a `STOPPED` status held for 1 s before `READY`
+- Changed — FACTORY RESET now asks for the fixed password `password` instead of the admin password, so a forgotten admin password can still be recovered
+- Changed — the log channel carries multi-line messages (log buffer 128 → 640 bytes, Web UI keeps the line breaks) and the WiFi retry log no longer prints the password
+
+---
+
 ## [1.11.0] - 2026-10-05
 
 - Added — Serial gets the mDNS hostname command `MDns:X` (letters, digits and hyphen, up to 31 characters; the firmware keeps it in RAM and writes FRAM on `Save&Reboot`) and reports the current name in the telemetry as `MDns:`, so the plugin can rename the device over the COM cable exactly like the Web UI does
-### Fixed — the name received over Serial was kept in RAM only: `Save&Reboot` now writes it to FRAM, so the device really comes back with the new mDNS name (the first 1.11.0 build accepted `MDns:` but never stored it)
+- Fixed — the name received over Serial was kept in RAM only: `Save&Reboot` now writes it to FRAM, so the device really comes back with the new mDNS name (the first 1.11.0 build accepted `MDns:` but never stored it)
 ---
 
 ## [1.10.0] - 2026-10-01

@@ -614,7 +614,7 @@ function updateUI(data) {
     }
   }
 
-  // Xử lý phản hồi Factory Reset (chỉ chạy khi mật khẩu admin đúng)
+  // Xử lý phản hồi Factory Reset (chỉ chạy khi mật khẩu factory "password" đúng)
   if (data.cmd === 'factoryReset') {
     if (data.result) {
       hideModal();
@@ -2171,8 +2171,8 @@ if (factoryResetBtn) {
   factoryResetBtn.addEventListener('click', () => {
     showModal(
       '⚠ Factory Reset',
-      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>admin password</strong> to confirm:' +
-      '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Admin password" autocomplete="off">',
+      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>factory reset password</strong> (<code>password</code>) to confirm:' +
+      '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Factory reset password" autocomplete="off">',
       [
         {
           text: 'Yes, Factory Reset',
@@ -2182,7 +2182,7 @@ if (factoryResetBtn) {
             const passEl = document.getElementById('factory-reset-pass');
             const pass = passEl ? passEl.value : '';
             if (!pass) {
-              showMessage('⚠ Enter the admin password to confirm.', '#save-message', 3000);
+              showMessage('⚠ Enter the factory reset password to confirm.', '#save-message', 3000);
               if (passEl) passEl.focus();
               return;
             }
@@ -2305,6 +2305,9 @@ function renderWifiList(networks) {
 // ===== LOGGING =====
 function appendLog(message) {
   if (message.includes("Manual stop sequence completed. Hardlimit re-enabled.")) return;
+  // Log nhiều dòng được render bằng white-space: pre-line ⇒ bỏ whitespace/newline ở CUỐI
+  // để không sinh thêm dòng trống (vd log "ApplyConf: ...\n").
+  message = String(message).replace(/[\s\n]+$/, '');
   const now = new Date();
   const time = now.toLocaleTimeString();
   const entry = document.createElement('div');
