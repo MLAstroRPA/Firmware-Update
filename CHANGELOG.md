@@ -4,6 +4,17 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.12.1] - 2026-10-06
+
+- Fixed — FACTORY RESET now writes a blank FRAM struct instead of only clearing `magic`: the appended fields (saved WiFi network list, mDNS name, beep, mute-errors, aligned position) used to survive the reset and the two preloaded networks were never restored
+- Fixed — `isUsableSubnetMask()` read the mask through a `uint32_t` cast, so every valid mask was rejected: each boot logged `AP subnet empty/invalid in FRAM` and rewrote FRAM
+- Changed — the default AP password is `password` (was `MLAstroRPA`)
+- Changed — no log prints a WiFi/AP password any more and the `max clients` line is gone; `?` polled before the handshake is answered with silence instead of an error
+- Changed — Serial logs: the stored network list is printed once (with passwords) right after the AP IP, `STA connected (SSID: …)` is printed immediately, the internet result follows on its own line, and the mDNS URL line is no longer deferred
+- Changed — FRAM writes are aligned to 32-byte pages so a chunk can never wrap inside a FRAM page
+
+---
+
 ## [1.12.0] - 2026-10-06
 
 - Added — WiFi history: the firmware keeps the last 5 networks (SSID + password) in FRAM; a newly saved network goes to slot 1, a duplicate SSID is updated and moved up, the oldest entry is evicted but never the network that is currently connected, and an empty list is preloaded with the two factory networks
@@ -11,12 +22,6 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 - Added — new `STOPPING` status while a STOP ramps the axes down and a `STOPPED` status held for 1 s before `READY`
 - Changed — FACTORY RESET now asks for the fixed password `password` instead of the admin password, so a forgotten admin password can still be recovered
 - Changed — the log channel carries multi-line messages (log buffer 128 → 640 bytes, Web UI keeps the line breaks) and the WiFi retry log no longer prints the password
-
----
-
-## [1.12.1] - 2026-10-06
-
-- Fixed — FACTORY RESET now writes a blank FRAM struct instead of only clearing `magic`: the appended fields (saved WiFi network list, mDNS name, beep, mute-errors, aligned position) used to survive the reset and the two preloaded networks were never restored
 
 ---
 
