@@ -4,6 +4,10 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.14.0] - 2026-10-07
+
+- Added — Serial factory reset: the firmware accepts the MLASTRO-FRAM-RESET! token without a handshake and wipes FRAM (used by the Multi-ESP-Flasher right after flashing)
+
 ## [1.13.0] - 2026-10-07
 
 - Added — selectable beep volume with four levels (Off / Low / Medium / High) replacing the enable/disable checkbox
