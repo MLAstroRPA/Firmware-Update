@@ -68,5 +68,19 @@
     "version": "1.12.1",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-07T02:50:42Z"
+  },
+  "firmware 1.13.0.bin": {
+    "description": "Firmware 1.13.0 - beep volume with 4 levels (Off/Low/Medium/High), max motor RPM 50-300 (default 200), motor swap enabled by default",
+    "type": "firmware",
+    "version": "1.13.0",
+    "size_bytes": 1299600,
+    "release_date_utc": "2026-10-07T03:36:15Z"
+  },
+  "spiffs 1.13.0.bin": {
+    "description": "Web UI 1.13.0 - beep volume radios (Off/Low/Medium/High), Max Motor RPM 50-300 default 200, swap default ON, APPLY now applies beep volume",
+    "type": "spiffs",
+    "version": "1.13.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-07T03:36:15Z"
   }
 }

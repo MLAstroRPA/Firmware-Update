@@ -61,8 +61,8 @@
           <p class="brand-subtitle">Robotic Polar Alignment</p>
           <div class="version-info">
             <!-- Bấm số firmware (hoặc ngôi sao) = mở lại trang với ?updates=1 ⇒ tự bật modal update -->
-            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.12.1</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
-            <span id="display-spiffs-ver" style="display:none;">spiffs 1.12.1</span>
+            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.13.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
+            <span id="display-spiffs-ver" style="display:none;">spiffs 1.13.0</span>
           </div>
         </div>
       </div>
@@ -778,15 +778,18 @@
           </div>
           <div class="config-item" style="margin-top: 15px;">
             <label for="swap-az-alt" class="checkbox-label">
-              <input type="checkbox" id="swap-az-alt" class="checkbox-input">
+              <input type="checkbox" id="swap-az-alt" class="checkbox-input" checked>
               Swap Az-Alt motor ports (Save &amp; Reboot required)
             </label>
           </div>
           <div class="config-item" style="margin-top: 10px;">
-            <label for="enable-beep" class="checkbox-label" title="Tick = beep on (default). Untick = completely SILENT (boot melody included). Effective right after Apply; stored in FRAM when you use SAVE ALL.">
-              <input type="checkbox" id="enable-beep" class="checkbox-input" checked>
-              Enable beep (uncheck = silent mode)
-            </label>
+            <label class="checkbox-label" style="font-weight:600;" title="Beep volume of the piezo buzzer. 'Off' = completely silent (boot melody included). Effective right after Apply; stored in FRAM when you use SAVE ALL.">Beep volume:</label>
+            <div class="radio-group" style="margin-top:6px;">
+              <label style="display:block;"><input type="radio" name="beep-level" id="beep-level-0" value="0"> Off (silent)</label>
+              <label style="display:block;"><input type="radio" name="beep-level" id="beep-level-1" value="1"> Low</label>
+              <label style="display:block;"><input type="radio" name="beep-level" id="beep-level-2" value="2"> Medium</label>
+              <label style="display:block;"><input type="radio" name="beep-level" id="beep-level-3" value="3" checked> High (default)</label>
+            </div>
           </div>
           <!-- #26: ẩn checkbox "Show hardlimit monitor" khỏi UI
           <div class="config-item" style="margin-top: 15px;">
@@ -799,7 +802,7 @@
         <div class="config-item" style="margin-top: 15px;">
           <label>Max Motor RPM (Speed Level 5):</label>
           <div class="input-wrapper">
-            <input type="number" id="max-speed" value="200" min="50" max="400">
+            <input type="number" id="max-speed" value="200" min="50" max="300">
             <span class="unit">RPM (50-400)</span>
           </div>
         </div>

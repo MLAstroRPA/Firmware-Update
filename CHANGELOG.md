@@ -4,6 +4,13 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.13.0] - 2026-10-07
+
+- Added — selectable beep volume with four levels (Off / Low / Medium / High) replacing the enable/disable checkbox
+- Changed — the max motor RPM setting accepts 50-300 and defaults to 200
+- Changed — the motor swap option is enabled by default
+- Fixed — APPLY now applies the beep volume change (before it was only applied by SAVE ALL & REBOOT)
+
 ## [1.12.1] - 2026-10-06
 
 - Fixed — FACTORY RESET now writes a blank FRAM struct instead of only clearing `magic`: the appended fields (saved WiFi network list, mDNS name, beep, mute-errors, aligned position) used to survive the reset and the two preloaded networks were never restored

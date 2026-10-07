@@ -1041,10 +1041,13 @@ function updateUI(data) {
       document.getElementById('show-steps').checked = data.motor.show_steps;
       toggleStepsDisplay(data.motor.show_steps);
     }
-    // #21: bật/tắt tiếng beep (checkbox Admin Config — tick = có tiếng)
-    if (data.motor.enable_beep !== undefined) {
-      const cb = document.getElementById('enable-beep');
-      if (cb) cb.checked = data.motor.enable_beep;
+    // #28: mức âm lượng còi (4 radio: 0 tắt / 1 nhỏ / 2 vừa / 3 to). Vẫn nhận enable_beep của bản firmware cũ.
+    if (data.motor.beep_level !== undefined) {
+      const rb28 = document.getElementById('beep-level-' + String(data.motor.beep_level));
+      if (rb28) rb28.checked = true;
+    } else if (data.motor.enable_beep !== undefined) {
+      const rb28 = document.getElementById('beep-level-' + (data.motor.enable_beep ? '3' : '0'));
+      if (rb28) rb28.checked = true;
     }
     if (data.motor.az_sg_thrs !== undefined) {
       _hlCache.az_sg_thrs = data.motor.az_sg_thrs;
@@ -1515,7 +1518,7 @@ function collectConfig() {
       alt_boost_pct: parseInt(document.getElementById('alt-boost-pct').value) || 120,
       alt_soft_cs_pct: document.getElementById('alt-soft-cs-pct') ? (parseInt(document.getElementById('alt-soft-cs-pct').value) || 70) : 70,
       alt_microsteps: parseInt(document.getElementById('alt-microsteps').value),
-      max_speed: parseFloat(document.getElementById('max-speed').value) || 400.0,
+      max_speed: parseFloat(document.getElementById('max-speed').value) || 200.0,
       alt_accel: parseInt(document.getElementById('alt-accel').value),
       alt_decel: parseInt(document.getElementById('alt-decel').value),
       alt_spd: parseFloat(document.getElementById('alt-spd').value),
@@ -1523,7 +1526,7 @@ function collectConfig() {
       az_spread_cycle: document.getElementById('az-mode-spreadcycle').checked,
       alt_spread_cycle: document.getElementById('alt-mode-spreadcycle').checked,
       show_steps: document.getElementById('show-steps').checked,
-      enable_beep: document.getElementById('enable-beep') ? document.getElementById('enable-beep').checked : true,   // #21: tick = có tiếng
+      beep_level: (function () { const r = document.querySelector('input[name="beep-level"]:checked'); return r ? parseInt(r.value, 10) : 3; })(),   // #28: 4 mức âm lượng còi (0 tắt / 1 nhỏ / 2 vừa / 3 to)
       // #26: thẻ Hardlimit đã ẩn khỏi UI ⇒ ưu tiên DOM nếu có (mở lại comment), không có thì lấy cache
       az_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`az-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.az_sg_thrs ? (_hlCache.az_sg_thrs[i] || 110) : 110); }),
       alt_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`alt-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.alt_sg_thrs ? (_hlCache.alt_sg_thrs[i] || 110) : 110); }),
@@ -1533,7 +1536,7 @@ function collectConfig() {
       escape_rotations: document.getElementById('escape-rotations') ? parseInt(document.getElementById('escape-rotations').value) : (_hlCache.escape_rotations !== null ? _hlCache.escape_rotations : 3),
       enable_hardlimit: document.getElementById('enable-hardlimit') ? document.getElementById('enable-hardlimit').checked : (_hlCache.enable_hardlimit !== null ? _hlCache.enable_hardlimit : false),
       show_hardlimit_monitor: document.getElementById('show-hardlimit-monitor') ? document.getElementById('show-hardlimit-monitor').checked : (_hlCache.show_hardlimit_monitor !== null ? _hlCache.show_hardlimit_monitor : false),
-      swap_az_alt: document.getElementById('swap-az-alt') ? document.getElementById('swap-az-alt').checked : false
+      swap_az_alt: document.getElementById('swap-az-alt') ? document.getElementById('swap-az-alt').checked : true
     },
     serial: {
       // UI baud/databits/stopbits/parity đã bị ẩn (comment trong index.html) -> giữ giá trị mặc định/firmware
@@ -4458,7 +4461,7 @@ window.addEventListener('load', () => {
     maxSpeedInput.addEventListener('change', (e) => {
       let val = parseFloat(e.target.value);
       if (val < 50) e.target.value = 50;
-      if (val > 400) e.target.value = 400;
+      if (val > 300) e.target.value = 300;
     });
   }
   
