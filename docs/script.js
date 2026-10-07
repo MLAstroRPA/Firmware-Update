@@ -16,6 +16,10 @@ let backendWsChecked = false;
 let systemLocked = false; // true = đang do PC (Serial) điều khiển -> khóa nút điều khiển web
 let isRebooting = false; // giữ trạng thái REBOOTING cho đến khi reboot hoàn tất
 let motionMode = 'idle';
+// #29: chiều đang GIẢM TỐC của từng trục (firmware gửi: 1 = dương, -1 = âm, 0 = không giảm tốc)
+// ⇒ dùng để khoá nút mũi tên NGƯỢC chiều cho tới khi trục dừng hẳn (chống đảo chiều khi còn quán tính).
+let rampDirAz = 0;
+let rampDirAlt = 0;
 
 // Chart Variables
 let sgChartCtx = null;
@@ -873,6 +877,13 @@ function updateUI(data) {
     motionMode = data.motion_mode;
     updateMotionControls();
   }
+
+  // #29: chiều đang GIẢM TỐC (firmware) ⇒ khoá nút mũi tên NGƯỢC chiều cho tới khi trục dừng hẳn
+  if (data.ramp_az !== undefined || data.ramp_alt !== undefined) {
+    if (data.ramp_az !== undefined) rampDirAz = Number(data.ramp_az) || 0;
+    if (data.ramp_alt !== undefined) rampDirAlt = Number(data.ramp_alt) || 0;
+    updateMotionControls();
+  }
   
   // Cập nhật thông tin phiên bản từ Server
   if (data.fw_ver !== undefined) {
@@ -1397,6 +1408,13 @@ function updateMotionControls() {
 
   manualSelectors.forEach((selector) => setDisabled(selector, disableManual));
   automaticSelectors.forEach((selector) => setDisabled(selector, disableAutomatic));
+
+  // #29: trục đang GIẢM TỐC ⇒ khoá nút NGƯỢC chiều (nhấn CÙNG chiều vẫn cho phép) — chống đảo chiều
+  // khi trục còn quán tính (dễ mất bước). Nút mũi tên: az -1 = LEFT, +1 = RIGHT; alt -1 = DOWN, +1 = UP.
+  if (rampDirAz > 0) setDisabled('#btn-left', true);
+  else if (rampDirAz < 0) setDisabled('#btn-right', true);
+  if (rampDirAlt > 0) setDisabled('#btn-down', true);
+  else if (rampDirAlt < 0) setDisabled('#btn-up', true);
 }
 
 // ===== TAB SWITCHING =====
@@ -1506,8 +1524,8 @@ function collectConfig() {
     motor: {
       az_run_ma: parseInt(document.getElementById('az-current-run').value),
       az_hold_ma: parseInt(document.getElementById('az-current-hold').value),
-      az_boost_pct: parseInt(document.getElementById('az-boost-pct').value) || 120,
-      az_soft_cs_pct: document.getElementById('az-soft-cs-pct') ? (parseInt(document.getElementById('az-soft-cs-pct').value) || 70) : 70,
+      az_boost_pct: Math.min(150, Math.max(100, parseInt(document.getElementById('az-boost-pct').value) || 120)),
+      az_soft_cs_pct: Math.min(100, Math.max(60, document.getElementById('az-soft-cs-pct') ? (parseInt(document.getElementById('az-soft-cs-pct').value) || 70) : 70)),
       az_microsteps: parseInt(document.getElementById('az-microsteps').value),
       az_accel: parseInt(document.getElementById('az-accel').value),
       az_decel: parseInt(document.getElementById('az-decel').value),
@@ -1515,8 +1533,8 @@ function collectConfig() {
       az_reverse: document.getElementById('az-reverse').checked,
       alt_run_ma: parseInt(document.getElementById('alt-current-run').value),
       alt_hold_ma: parseInt(document.getElementById('alt-current-hold').value),
-      alt_boost_pct: parseInt(document.getElementById('alt-boost-pct').value) || 120,
-      alt_soft_cs_pct: document.getElementById('alt-soft-cs-pct') ? (parseInt(document.getElementById('alt-soft-cs-pct').value) || 70) : 70,
+      alt_boost_pct: Math.min(150, Math.max(100, parseInt(document.getElementById('alt-boost-pct').value) || 120)),
+      alt_soft_cs_pct: Math.min(100, Math.max(60, document.getElementById('alt-soft-cs-pct') ? (parseInt(document.getElementById('alt-soft-cs-pct').value) || 70) : 70)),
       alt_microsteps: parseInt(document.getElementById('alt-microsteps').value),
       max_speed: parseFloat(document.getElementById('max-speed').value) || 200.0,
       alt_accel: parseInt(document.getElementById('alt-accel').value),
@@ -2322,6 +2340,9 @@ function appendLog(message) {
   // Tô màu log dựa trên từ khóa: [Apply] = cam, [SAVE&REBOOT required] = vàng
   if (message.includes("[SAVE&REBOOT required]")) {
     entry.classList.add('log-reboot');
+  } else if (message.includes("[diff]") || message.includes("result=DIFF")) {
+    // #29: dòng LỆCH của "Load Drive Config" (giá trị firmware <> giá trị đọc từ driver) = CAM
+    entry.classList.add('log-diff');
   } else if (message.includes("[Apply]")) {
     entry.classList.add('log-apply');
   } else if (message.includes("Reset by User")) {
@@ -2397,6 +2418,13 @@ function appendSerialLog(dir, message) {
 const resetErrorBtn = document.getElementById('reset-error-btn');
 if(resetErrorBtn) resetErrorBtn.addEventListener('click', () => {
   sendCommand('resetError', {});
+});
+
+// Nút "Load Drive Config" (panel Motor Driver): đọc NGƯỢC cấu hình THẬT trong TMC2209 qua Serial1
+// → firmware in log `[Drive compare]` (mỗi thông số 1 dòng) cho cả 2 trục vào System log (chỉ chạy khi motor đứng yên).
+const loadDrvCfgBtn = document.getElementById('load-drvcfg-btn');
+if(loadDrvCfgBtn) loadDrvCfgBtn.addEventListener('click', () => {
+  sendCommand('loadDriverConfig', {});
 });
 
 const clearLogBtn = document.getElementById('clear-log-btn');

@@ -952,6 +952,7 @@ label,
 .log-success { color: green; }
 .log-backlash { color: orange; font-weight: bold; }
 .log-apply { color: orange; font-weight: bold; }
+.log-diff { color: var(--warning); font-weight: bold; } /* #29: dòng [diff] của "Load Drive Config" (firmware <> driver) */
 .log-reboot { color: var(--primary); font-weight: bold; } /* Xanh giống nút APPLY: [SAVE&REBOOT required] */
 
 /* Serial log TX/RX */

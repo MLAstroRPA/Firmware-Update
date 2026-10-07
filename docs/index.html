@@ -443,7 +443,7 @@
             </div>
             <div class="config-item">
               <label title="Lowest current factor at high speed (Soft CoolStep)">Soft CoolStep:</label>
-              <div class="input-wrapper"><input type="number" id="az-soft-cs-pct" value="70" min="10" max="120">
+              <div class="input-wrapper"><input type="number" id="az-soft-cs-pct" value="70" min="60" max="100">
               <span class="unit">%</span></div>
             </div>
             <div class="config-item">
@@ -509,7 +509,7 @@
             </div>
             <div class="config-item">
               <label title="Lowest current factor at high speed (Soft CoolStep)">Soft CoolStep:</label>
-              <div class="input-wrapper"><input type="number" id="alt-soft-cs-pct" value="70" min="10" max="120">
+              <div class="input-wrapper"><input type="number" id="alt-soft-cs-pct" value="70" min="60" max="100">
               <span class="unit">%</span></div>
             </div>
             <div class="config-item">
@@ -944,6 +944,16 @@
           </div>
         </div>
         hết phần ẩn Travel Calibration -->
+        <!-- #29: Đối chiếu cấu hình THẬT trong drive (đọc ngược qua Serial1) -->
+        <div class="config-item" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+          <label><svg class="ico" aria-hidden="true"><use href="#i-motor"/></svg> Drive Compare:</label>
+          <p style="font-size: 11px; color: var(--text-muted); margin: 6px 0 10px 0;">
+            Read back the <strong>real</strong> settings stored inside the TMC2209 drivers (over Serial1) and print one
+            comparison line per parameter into the System log: <code>firmware [set] | [read] driver</code>
+            (<code>[same]</code>/<code>[diff]</code>). Only runs while the motors are stopped.
+          </p>
+          <button type="button" id="load-drvcfg-btn" class="btn btn-info" title="Read back the REAL settings stored inside the TMC2209 drivers over Serial1 and print one comparison line per parameter (AZ + ALT) into the System log. Only runs while the motors are stopped."><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg> Load Drive Config</button>
+        </div>
         <!-- Change Admin Password -->
         <div class="config-item" style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
           <label><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg> Change Admin Password:</label>
