@@ -22,7 +22,7 @@ Official release repository for the **MLAstroRPA** Robotic Polar Alignment mount
 
 1. Open the update page in a Chromium browser (Chrome / Edge):
 
-   **https://mlastrorpa.github.io/Firmware-Update/**
+   **https://mlastrorpa.github.io/Firmware-Update/?updates=1**
 
 2. Click **🔍 CHECK FOR UPDATES**.
 3. Select the version you want to install (Firmware and/or Web UI).
