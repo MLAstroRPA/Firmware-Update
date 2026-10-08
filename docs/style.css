@@ -889,6 +889,13 @@ label,
   font-size: 12px;
 }
 
+/* Nút "Change Password" (Admin Config): thu vừa chữ, KHÔNG kéo hết chiều rộng
+   (`.config-item` là flex column ⇒ mặc định stretch mọi phần tử con). */
+#change-pass-btn {
+  align-self: flex-start;
+  width: auto;
+}
+
 .button-group {
   display: flex;
   gap: 10px;
@@ -1367,41 +1374,46 @@ body.system-locked #config-tab label {
   padding-left: 2px;      /* khe hở nhỏ giữa tên và ".local" */
 }
 
-/* Ô mật khẩu WiFi/AP: icon con mắt nằm BÊN TRONG input, sát lề phải, cỡ lớn (3x).
-   `is-off` = password đang ẩn (gạch chéo qua con mắt). */
+/* Ô mật khẩu WiFi/AP: icon con mắt nằm BÊN TRONG input, sát lề phải — cỡ nhỏ, phẳng,
+   giống con mắt "reveal" mặc định của trình duyệt ở ô mật khẩu admin.
+   `is-off` = password đang ẨN (con mắt trơn); hiện ra thì thành mắt gạch chéo. */
 .pass-field {
   position: relative;
 }
 
 .pass-field input[type="password"],
 .pass-field input[type="text"] {
-  padding-right: 52px !important; /* chừa chỗ cho icon con mắt bên trong */
+  padding-right: 34px !important; /* chừa chỗ cho icon con mắt bên trong */
   min-height: 46px;
 }
 
 .pass-eye-btn {
   position: absolute;
-  right: 8px;
+  right: 10px;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   padding: 0;
   margin: 0;
   line-height: 1;
-  font-size: 36px; /* 3x cỡ icon cũ (12px) */
+  font-size: 12px; /* .ico = 1.5em ⇒ icon ~18px, bằng cỡ con mắt của ô admin password */
+  color: var(--text-muted);
+  opacity: 0.85;
   cursor: pointer;
-  opacity: 0.9;
   user-select: none;
 }
 
 .pass-eye-btn:hover {
   opacity: 1;
+  color: var(--text);
 }
 
 .pass-eye-btn.is-off {
-  text-decoration: line-through;
-  opacity: 0.6;
+  opacity: 0.65; /* đang ẩn: mờ hơn một chút, giống trạng thái mặc định của browser */
 }
 
 .radio-group {

@@ -4,6 +4,12 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.15.0] - 2026-10-08
+
+- Added — one-shot online report per power-on: as soon as the STA link has real internet the firmware POSTs a fixed device name (`MLAstroRPA`), its serial number (base MAC), the WiFi SSID in use and the firmware version to the MLAstro device collector (Google Apps Script behind the PWON list), which keeps one row per MAC with first/last online time and an online counter. Sent once per power-on, never repeated, and silent — no Serial output and no Web/plugin log line; if the collector is unreachable the firmware simply carries on
+- Changed — the AP / WiFi password eye button is now a small flat icon inside the field (same size as the browser's own reveal eye on the admin password inputs) and uses a minimal eye glyph (upper arc + pupil): hidden shows the plain eye, revealed shows it struck through; the `Change Password` button in Admin Config now hugs its text instead of stretching across the whole panel
+- Changed — changing the admin password now reads FRAM back to confirm the write really stuck, and every rejection is logged (`wrong current password` / `invalid new password length` / `FRAM write did not stick`); the Web UI keeps the failure message on screen longer and names the default admin password
+
 ## [1.14.0] - 2026-10-07
 
 - Added — Serial factory reset: the firmware accepts the MLASTRO-FRAM-RESET! token without a handshake and wipes FRAM (used by the Multi-ESP-Flasher right after flashing)

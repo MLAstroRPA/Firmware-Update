@@ -42,8 +42,8 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></symbol>
     <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4.5L21 20H3z"/><path d="M12 10v4.5M12 17.6v.01"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.5 2.5L5.5 14H11l-1 7.5L18.5 10H13z"/></symbol>
-    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
-    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M3 15.5A10 10 0 0 1 21 15.5"/><circle cx="12" cy="14.5" r="4.2"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 15.5A10 10 0 0 1 21 15.5"/><circle cx="12" cy="14.5" r="4.2"/><path d="M4 5l16 14"/></symbol>
     <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7.2 6.8a7 7 0 1 0 9.6 0"/></symbol>
     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
     <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></symbol>
@@ -61,8 +61,8 @@
           <p class="brand-subtitle">Robotic Polar Alignment</p>
           <div class="version-info">
             <!-- Bấm số firmware (hoặc ngôi sao) = mở lại trang với ?updates=1 ⇒ tự bật modal update -->
-            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.14.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
-            <span id="display-spiffs-ver" style="display:none;">spiffs 1.14.0</span>
+            <span id="display-fw-ver" class="fw-link" title="Click to check for updates">Firmware 1.15.0</span><span id="fw-new-badge" class="fw-new-badge hidden" title="New firmware available — click to update">✨</span>
+            <span id="display-spiffs-ver" style="display:none;">spiffs 1.15.0</span>
           </div>
         </div>
       </div>
@@ -612,7 +612,7 @@
                 <label>AP Password:</label>
                 <div class="input-wrapper pass-field">
                   <input type="password" id="ap-pass" placeholder="********" title="Leave blank = keep current password">
-                  <button type="button" id="ap-pass-eye" class="pass-eye-btn is-off" title="Show / hide AP password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg></button>
+                  <button type="button" id="ap-pass-eye" class="pass-eye-btn is-off" title="Show / hide AP password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye"/></svg></button>
                 </div>
               </div>
               <div class="config-item">
@@ -649,7 +649,7 @@
               <label>WiFi Password:</label>
                 <div class="input-wrapper pass-field">
                   <input type="password" id="wifi-pass" placeholder="********" title="Leave blank = keep current password">
-                  <button type="button" id="wifi-pass-eye" class="pass-eye-btn is-off" title="Show / hide WiFi password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg></button>
+                  <button type="button" id="wifi-pass-eye" class="pass-eye-btn is-off" title="Show / hide WiFi password (fetched from device on demand)"><svg class="ico" aria-hidden="true"><use href="#i-eye"/></svg></button>
               </div>
             </div>
             <div class="config-item">

@@ -614,7 +614,8 @@ function updateUI(data) {
       if (oldEl) oldEl.value = '';
       if (newEl) newEl.value = '';
     } else {
-      showMessage('⚠ Failed: incorrect current password or invalid new password.', '#change-pass-msg', 4000);
+      // Nói rõ mật khẩu mặc định để người dùng khỏi nhầm với mật khẩu WiFi/AP; giữ lâu hơn cho dễ thấy.
+      showMessage('⚠ Failed: wrong CURRENT password (admin default is "password", not the WiFi/AP password) or invalid new password (1-63 chars).', '#change-pass-msg', 8000);
     }
   }
 
@@ -2056,10 +2057,11 @@ const PASS_BLANK_PLACEHOLDER = '********';
 // Icon sprite dùng chung cho các chỗ JS vẽ icon (trạng thái AP/STA, mắt password, homing...).
 function svgIco(id) { return '<svg class="ico" aria-hidden="true"><use href="#' + id + '"/></svg>'; }
 
-// Icon con mắt: i-eye = đang hiện password, i-eye-off = đang ẩn (class `is-off` giữ trạng thái).
+// Icon con mắt: giống con mắt native của ô mật khẩu admin — ĐANG ẨN = mắt trơn, ĐANG HIỆN = mắt gạch chéo.
+// (class `is-off` = password đang ẩn, chỉ dùng cho style mờ hơn.)
 function setEyeIcon(btn, visible) {
   if (!btn) return;
-  btn.innerHTML = svgIco(visible ? 'i-eye' : 'i-eye-off');
+  btn.innerHTML = svgIco(visible ? 'i-eye-off' : 'i-eye');
   btn.classList.toggle('is-off', !visible);
 }
 

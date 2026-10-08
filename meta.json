@@ -96,5 +96,19 @@
     "version": "1.14.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-07T09:47:35Z"
+  },
+  "firmware 1.15.0.bin": {
+    "description": "UI: the AP/WiFi password eye is now a small flat icon inside the field (minimal eye glyph - hidden = plain eye, revealed = struck through) and the Admin Config 'Change Password' button hugs its text. Fix: changing the admin password now reports the real result - the firmware reads FRAM back to confirm the write and logs the reason when a change is refused (wrong current password / invalid new length / FRAM write failed), and the Web UI keeps the failure message on screen longer",
+    "type": "firmware",
+    "version": "1.15.0",
+    "size_bytes": 1310576,
+    "release_date_utc": "2026-10-08T03:17:18Z"
+  },
+  "spiffs 1.15.0.bin": {
+    "description": "UI: the AP/WiFi password eye is now a small flat icon inside the field (minimal eye glyph - hidden = plain eye, revealed = struck through) and the Admin Config 'Change Password' button hugs its text. Fix: changing the admin password now reports the real result - the firmware reads FRAM back to confirm the write and logs the reason when a change is refused (wrong current password / invalid new length / FRAM write failed), and the Web UI keeps the failure message on screen longer",
+    "type": "spiffs",
+    "version": "1.15.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-08T03:17:18Z"
   }
 }
