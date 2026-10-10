@@ -18,19 +18,49 @@ Official release repository for the **MLAstroRPA** Robotic Polar Alignment mount
 
 ---
 
-## Update the device (recommended — no tools required)
+## Update the device
 
-1. Open the update page in a Chromium browser (Chrome / Edge):
+There are **two supported ways** to update the mount — pick the one that fits your setup. No developer tools are required for any of them.
+
+| # | Method | When to use |
+|---|---|---|
+| 1 | **OTA (over Wi-Fi)** — from the Web UI | The device is already joined to your Wi-Fi network. |
+| 2 | **USB Serial (Web Serial)** — from the update page | The device is reachable only by USB cable. | 
+
+> 🌐 **Internet connection required.** Both ways download the release from GitHub, so the device and/or the PC must be online:
+> - **OTA (over Wi-Fi)** — the **mount** should have internet (it downloads the `.bin` itself — the most reliable path). If the mount is offline, the **browser** (PC/phone) can download the file and push it over Wi-Fi instead.
+> - **USB Serial (Web Serial)** — only the **PC** needs internet; the mount can stay offline.
+
+### Connect the mount to the internet (for OTA)
+
+The mount gets internet by joining your Wi-Fi **router** in **Station mode**. Its own AP stays active, so you can configure it from `http://192.168.4.1`.
+
+1. Connect your PC/phone to the mount's AP (`MLAstroRPA-XXXX`, password `MLAstroRPA`) and open **http://192.168.4.1**.
+2. Go to **🛠️ CONFIG → 📶 WiFi Configuration → Station Mode**.
+3. Press **🔍 Scan** and pick your **router SSID** (the network with internet).
+4. Enter the router **Password**, then **⚡ APPLY SETTINGS** to test or **✓ SAVE ALL & REBOOT** to keep it.
+5. Confirm **Current STA mode IP** shows a LAN address (e.g. `192.168.1.50`) — the mount is now online.
+
+> 💡 If the mount cannot reach a router, use **USB Serial** — only the PC needs internet.
+
+### 1. OTA (over Wi-Fi) — from the Web UI
+
+1. Open the Web UI → **🛠️ CONFIG → 🚀 System Update**.
+2. Click **🔍 CHECK FOR UPDATES**.
+3. Pick **Firmware** and/or **Web UI (SPIFFS)** and install over **OTA**.
+4. Wait for the progress overlay to finish (~2 minutes).
+
+### 2. USB Serial (Web Serial) — from the update page
+
+1. Connect the device to the PC with a USB cable.
+2. Open the update page in a Chromium browser (Chrome / Edge):
 
    **https://mlastrorpa.github.io/Firmware-Update/?updates=1**
 
-2. Click **🔍 CHECK FOR UPDATES**.
-3. Select the version you want to install (Firmware and/or Web UI).
-4. Follow the on-screen instructions to install using one of the two paths:
-   - **OTA (over Wi-Fi)** — when the device is already connected to your network.
-   - **USB Serial (Web Serial)** — connect the device to the PC with a USB cable.
+3. Choose the version (also tick `partitions.bin` and `bootloader.bin` if needed). Click [CONNECT] to open USB flash dashboard then follow the on-screen prompts.
 
-> ⚠️ Do not power off or disconnect the device during the update.
+
+> ⚠️ Do not power off or disconnect the device during any update.
 
 ---
 
@@ -129,15 +159,10 @@ The **📐 Position** panel shows current Azimuth/Altitude (from home), step cou
 - Set the **Travel Angle** for Azimuth (default 20°) and Altitude (default 30°).
 - Click **AZ Calib**, **ALT Calib** or **Calib All**. The axis travels to both hard limits — **make sure the path is clear**.
 - When the result appears, either **Apply Steps/Deg Only** or **Apply result & Auto center** (moves back to center and sets home).
-- **Sensorless Auto Tuning** (same area) auto-configures the StallGuard thresholds per speed level (`AZ/ALT SGTHRS`) and per microstep (`AZ/ALT TCOOL`) instead of entering values by hand.
-
-> Calibration requires **Hard Limits to be enabled first** — the Web UI warns you if they are not.
 
 #### 3.3 SAFETY — Limits & monitoring
 
 - **📏 Soft Limits** (🛠️ CONFIG): enable and set the AZ (±9°) and ALT (±14°) travel range in degrees. The mount refuses moves outside this range.
-- **🛡️ Hard Limits (Sensorless / StallGuard)** (🛠️ CONFIG): enter the **SGTHRS** value for each speed level (1–5) and **TCOOLTHRS** for each microstep on both axes, set **Debounce Time** and **Escape Rotations**, then tick **Enable Hard Limit**. When a stall is detected the axis stops and backs off.
-- **📈 Hardlimit Monitor** (🎮 CONTROL): live chart of AZ/ALT StallGuard load and motor current while moving — great for verifying threshold values (enable **Show hardlimit monitor** in Admin Config).
 - Header **FORCE STOP** and **⚠️ RESET ERROR** (in **📋 System Log**) let you stop and clear error states after a limit trip.
 - In **🔑 Admin Config**, keep **Enable Communication Watchdog** on so the mount performs an E-STOP if the control app loses the heartbeat.
 
@@ -146,7 +171,7 @@ The **📐 Position** panel shows current Azimuth/Altitude (from home), step cou
 - **⚙️ Motor Driver (TMC2209)** — per-axis **Run/Hold current**, **Start-up Booster**, **Soft CoolStep**, **Microsteps**, **Accel/Decel**, **Steps/Degree**, **StealthChop / SpreadCycle** mode and **Reverse Direction**.
 - **↔️ Backlash** — anti-backlash compensation in steps.
 - **📶 WiFi Configuration** — Access Point (SSID/password/IP) and Station mode (connect to your router, scan for networks, see connected clients).
-- **🔑 Admin Config** — serial port settings, swap Az-Alt motor ports (reboot required), show hardlimit monitor / steps, factory zero, max motor RPM, sensorless auto tuning, travel calibration, and password change.
+- **🔑 Admin Config** — serial port settings, swap Az-Alt motor ports (reboot required), show current step, factory zero, max motor RPM, travel calibration, and password change.
 
 Finally, use **💾 Configuration Management** to commit your changes:
 
@@ -159,21 +184,9 @@ Finally, use **💾 Configuration Management** to commit your changes:
 
 ##### 3.4.1 CONFIG reference (in detail)
 
-The CONFIG tab is split into eight collapsible panels. All values are stored in non-volatile FRAM memory and only become permanent when you press **✓ SAVE ALL & REBOOT**.
+The CONFIG tab is split into seven collapsible panels. All values are stored in non-volatile FRAM memory and only become permanent when you press **✓ SAVE ALL & REBOOT**.
 
-###### 🛡️ Hard Limits (Sensorless / StallGuard)
-
-Uses the TMC2209 **StallGuard** current sensing to detect the mechanical hard stops without any physical switch — when the motor is blocked, the load rises, `SG_RESULT` drops below the threshold and a stall is reported, so the axis stops and backs off.
-
-| Setting | Meaning |
-|---|---|
-| **Azimuth / Altitude SGTHRS (S1–S5)** | StallGuard sensitivity threshold for each speed level 1–5 (0–255). **Higher = more sensitive** (triggers earlier). Verify against real load with the **Hardlimit Monitor** chart. |
-| **AZ / ALT TCOOLTHRS Presets (MS 2–64)** | Speed threshold (`TSTEP`) at which StallGuard becomes active, per microstep. Set `0` to let the firmware **auto-calculate** (~95% speed), or use **Sensorless Auto Tuning → TCOOL**. |
-| **Debounce Time (ms)** | How long a stall signal must persist before it is confirmed (filters noise). |
-| **Escape Rotations (revs)** | How many revolutions the axis backs off after a stall. |
-| **Enable Hard Limit** | Master switch for StallGuard detection. **Must be enabled before Travel Calibration / Sensorless Auto Tuning** (the Web UI warns you otherwise). |
-
-###### 📏 Soft Limits (Degrees)
+######  Soft Limits (Degrees)
 
 Software limits — the mount refuses to move outside the configured angle range (measured from home).
 
@@ -193,7 +206,7 @@ Configured independently for the **AZ Motor** and **ALT Motor** (tick **Reverse 
 | **Hold Current (mA)** | Current while the motor is stationary (auto-capped at Run Current). |
 | **Start-up Booster (%)** | Extra current at start-up (100–150%) to overcome inertia, then reduced. |
 | **Soft CoolStep (%)** | Minimum current scale at high speed (10–120%) — current is gradually lowered as the motor reaches speed, keeping it cool and quiet. |
-| **Microsteps** | 2–256 microsteps (8–16 is typical). Changing this also affects the matching TCOOLTHRS preset. |
+| **Microsteps** | 2–256 microsteps (8–16 is typical). |
 | **Accel / Decel (steps/s²)** | Acceleration / deceleration rate. |
 | **Steps/Degree** | Steps per degree (5-decimal precision). If unknown, run **Travel Calibration**. |
 | **Mode: StealthChop / SpreadCycle** | StealthChop = quiet, for light load. SpreadCycle = stronger, more precise at speed, better for stall detection. |
@@ -233,24 +246,11 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 | **Enable Simply polling telemetry while running motor** | Reduce telemetry load while a motor is running. |
 | **Show Serial logs** | Forward Serial TX/RX logs over WebSocket (debugging aid). |
 | **Swap Az-Alt motor ports** | Swap the two motor port assignments (**requires reboot**). |
-| **Show hardlimit monitor (Enable Chart)** | Show the StallGuard/current chart on the CONTROL tab to verify thresholds. |
 | **Show current step in Control tab** | Show step counters on the CONTROL tab. |
 | **📍 SET FACTORY ZERO** | Set the soft-limit reference at the current physical position **and apply SET HOME HERE** at the same time. |
 | **Max Motor RPM (Speed Level 5)** | Maximum RPM of speed level 5 (50–400); lower levels are derived from it. |
-| **Sensorless Auto Tuning** | Auto-tune the StallGuard thresholds instead of typing them by hand. Requires the mount to be at a **manual center** position with a clear path. |
 | **Travel Calibration** | Measure exact `Steps/Degree` by driving to both hard limits. |
 | **🔒 Change Admin Password** | Change the admin password (max 63 chars). |
-
-**Sensorless Auto Tuning** — four parameters plus four buttons:
-
-- **Fwd(s)** — forward travel time per leg (default 10 s). **Rev(s)** — reverse travel time (default 20 s).
-- **SG(%)** — scale applied to the measured `SG_RESULT` when suggesting SGTHRS (default 80%).
-- **TC(%)** — scale applied when suggesting TCOOLTHRS (default 120%).
-- **AZ/ALT SGTHRS** (yellow) — runs the 5 speed levels, measures average `SG_RESULT` on the stable portion of each leg, and proposes 5 SGTHRS values (S1–S5).
-- **AZ/ALT TCOOL** (blue) — runs each microstep, measures the max clean `TSTEP`, and proposes TCOOL presets for MS 2–64.
-- After finishing, a dialog lets you **Apply to All Levels** / **Apply** the suggested values into the inputs — then press **⚡ APPLY SETTINGS** or **✓ SAVE ALL & REBOOT** for them to take effect.
-
-> The axis moves forward → reverse → return-to-center for every step. **Keep the path clear and hands away.**
 
 **Travel Calibration** — measure `Steps/Degree` automatically:
 
@@ -258,11 +258,11 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 - Press **STOP**, **AZ Calib**, **ALT Calib** or **Calib All**. The axis drives until it hits both hard limits, then the firmware computes the real `Steps/Degree`.
 - On completion choose **Apply Steps/Deg Only** or **Apply result & Auto center** (returns to center and sets home).
 
-> ⚠️ **Enable Hard Limit** first, and make sure the travel path is clear — the axis runs the full range.
+> ⚠️ Make sure the travel path is clear — the axis runs the full range.
 
 ###### 🚀 System Update
 
-- **🔍 CHECK FOR UPDATES** — compares against the release repository (`MLAstroRPA/Firmware-Update`) via `meta.json`.
+- **🔍 CHECK FOR UPDATES** — compares against the release repository (`MLAstroRPA/Firmware-Update`) via `meta.json` (**internet required**).
 - Choose **Firmware** and/or **Web UI (SPIFFS)** and install over **OTA (Wi-Fi)** or **USB Serial (Web Serial)**.
 - A progress overlay shows the update (~2 minutes) — **do not power off or refresh** during installation.
 
@@ -279,7 +279,7 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 #### 3.5 First-time setup — quick sequence
 
 1. Open the Web UI and go to **🛠️ CONFIG**.
-2. Set **Soft Limits** (and **Hard Limits** if using sensorless StallGuard).
+2. Set **Soft Limits**.
 3. Verify **Motor Driver** parameters; if `Steps/Degree` is unknown, run **Travel Calibration** and **Apply result & Auto center**.
 4. Click **✓ SAVE ALL & REBOOT** to persist.
 5. Use **🎮 CONTROL → 🕹️ Manual Movement** (or **Return to Home**) to position the mount, then apply corrections with **🎯 Polar Alignment**.
@@ -296,34 +296,6 @@ This panel is locked — press **🔑 Admin Config** in *Configuration Managemen
 ```
 
 - Once Serial control is active, the Web UI is locked to avoid command collision.
-
----
-
-## Other update methods (advanced)
-
-### USB flash scripts (Windows developers)
-
-Use the `.bat` scripts from the firmware repository:
-
-- `Flash Firmware (BAT)`
-- `Flash SPIFFS (BAT)`
-- `Flash All (Firmware + SPIFFS) (BAT)`
-
-Flash address mapping:
-
-- Firmware: `0x10000`
-- SPIFFS: `0x398000`
-- OTA boot data (erase before firmware flash): `0xE000`, size `0x2000`
-
-### PlatformIO CLI (developers)
-
-```bash
-# Firmware
-platformio run -e upesy_wrover -t upload
-
-# SPIFFS (Web UI)
-platformio run -e upesy_wrover -t uploadfs
-```
 
 ---
 
