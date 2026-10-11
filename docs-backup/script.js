@@ -1,0 +1,4718 @@
+// ===== WebSocket Connection =====
+let ws = null;
+let reconnectInterval = null;
+let isSystemHomed = false; // Biến lưu trạng thái Homed từ server
+let currentSystemStatus = ''; // #27: trạng thái hệ thống mới nhất (READY/BUSY/...) để kiểm tra trước khi lưu vị trí
+let wasAutoMoving = false; // Biến lưu trạng thái di chuyển trước đó để phát hiện khi nào hoàn thành
+let currentFwVer = "unknown";
+let currentSpiffsVer = "unknown";
+let hasSystemError = false;
+let muteAllErrors = false; // #22: Test mode - khoá mọi báo lỗi (Admin Config). Lấy từ firmware qua config
+let isSystemCalibrating = false; // Biến lưu trạng thái đang Calib
+let isCalibAutoCenterPending = false; // Biến cờ theo dõi quy trình Auto Center sau Calib
+let isUpdatingFromWS = false; // Cờ chặn gửi lệnh lưu khi đang cập nhật từ Server
+let backendWsConnected = false;
+let backendWsChecked = false;
+let systemLocked = false; // true = đang do PC (Serial) điều khiển -> khóa nút điều khiển web
+let isRebooting = false; // giữ trạng thái REBOOTING cho đến khi reboot hoàn tất
+let motionMode = 'idle';
+// #29: chiều đang GIẢM TỐC của từng trục (firmware gửi: 1 = dương, -1 = âm, 0 = không giảm tốc)
+// ⇒ dùng để khoá nút mũi tên NGƯỢC chiều cho tới khi trục dừng hẳn (chống đảo chiều khi còn quán tính).
+let rampDirAz = 0;
+let rampDirAlt = 0;
+
+// Chart Variables
+let sgChartCtx = null;
+// #26: cache giá trị Hardlimit nhận từ thiết bị (thẻ này đã bị ẩn khỏi UI) ⇒ Apply/Save gửi lại đúng số cũ,
+// KHÔNG vô tình tắt Hard Limit khi field không còn trên giao diện.
+const _hlCache = { az_sg_thrs: null, alt_sg_thrs: null, az_tcool_presets: null, alt_tcool_presets: null, stall_time: null, escape_rotations: null, enable_hardlimit: null, show_hardlimit_monitor: null };
+const sgHistoryLength = 100;
+let lastCalibData = null; // Lưu kết quả calib tạm thời
+let sgDataAz = new Array(sgHistoryLength).fill(0);
+let sgDataAlt = new Array(sgHistoryLength).fill(0);
+let csDataAz = new Array(sgHistoryLength).fill(0);
+let csDataAlt = new Array(sgHistoryLength).fill(0);
+let otaPlan = null;
+let otaCurrentStepIndex = -1;
+let otaMode = 'ota';
+// Nguồn cài đặt OTA (quyết định trong checkAllUpdates):
+//   espOtaOnline    = ESP32 có internet qua STA ⇒ ESP TỰ TẢI .bin (ƯU TIÊN — đường ổn định nhất,
+//                     không phụ thuộc điện thoại/tab; user chốt 2026-09-19).
+//   otaClientOnline = browser (PC/điện thoại) có internet ⇒ CHỈ dùng khi ESP không có internet
+//                     (browser tải .bin hộ rồi đẩy từng khối vào ESP qua /api/ota/upload).
+let espOtaOnline = false;
+let otaClientOnline = true;
+// Kích thước mỗi khối khi trình duyệt đẩy .bin vào ESP (POST /api/ota/upload)
+const BROWSER_OTA_CHUNK_SIZE = 64 * 1024;
+let espWebToolsLoader = null;
+let usbFlashProgressHint = 0;
+let usbFlashPhase = 'preparing';
+let activeUsbManifestUrl = null;
+let activeUsbLocalBlobUrls = [];
+
+const ESP_WEB_TOOLS_MODULE_URL = 'https://unpkg.com/esp-web-tools@9/dist/web/install-button.js?module';
+const PUBLIC_USB_UPDATE_URL = 'https://mlastrorpa.github.io/Firmware-Update/';
+
+// Chuỗi thông báo dùng chung — khai báo 1 lần duy nhất rồi tái sử dụng ở mọi chỗ (tránh lặp văn bản
+// trong file, tiết kiệm dung lượng SPIFFS vốn rất sát trần).
+const MSG_NO_USB_SERIAL = 'USB Serial is not available on this device. Use Chrome/Edge on a PC that has the CP2102 USB to UART Serial driver to update via Serial.';
+const MSG_NO_INTERNET = 'This device has no internet, can not use this progress/session/function.';
+// Trang chạy HTTP (ESP IP) ⇒ Web Serial bị chặn vì insecure context — KHÁC với trường hợp máy/trình
+// duyệt không có USB Serial (MSG_NO_USB_SERIAL). Đừng dùng chung 1 thông báo cho 2 trường hợp này.
+const MSG_INSECURE_PAGE = 'Web Serial is blocked on this insecure page (ESP HTTP IP). Open the Beta UI over HTTPS in a tab to update via Serial.';
+
+// Trên trang HTTP, Chromium (Chrome/Edge) ẨN `navigator.serial` ⇒ KHÔNG được dùng `'serial' in navigator`
+// để kết luận "thiếu Web Serial" (Edge/Chrome trên PC + HTTP sẽ bị nhận nhầm). Nhận diện bằng
+// UA/brand: desktop Chromium LUÔN có Web Serial API, chỉ là bị chặn khi trang không phải secure context.
+const chromiumDesktop = !isMobileClient() && (() => {
+  const brands = navigator.userAgentData && navigator.userAgentData.brands;
+  if (Array.isArray(brands) && brands.length) {
+    return brands.some((b) => /Chromium|Chrome|Edge|Opera/i.test((b && b.brand) || ''));
+  }
+  return /Chrome|Chromium|Edg|OPR/i.test(navigator.userAgent || '');
+})();
+
+// Máy/trình duyệt KHÔNG thể dùng Web Serial (mobile, tablet, Firefox/Safari…) ⇒ thay ô tick
+// "Update via COM port" bằng dòng thông báo; desktop Chromium vẫn giữ ô tick kể cả trên trang HTTP.
+const noWebSerialDevice = !chromiumDesktop;
+const FLASH_OFFSETS = {
+  bootloader: '0x1000',
+  partitions: '0x8000',
+  firmware: '0x10000',
+  spiffs: '0x398000',
+  // Ảnh GỘP 4 bin do build script sinh ra (MLAstroRPA-full-x.y.z.bin = toàn bộ 4 MB flash,
+  // 4 KB đầu là 0xFF) ⇒ nạp DUY NHẤT file này ở 0x0, không cần bootloader/partitions/firmware/spiffs.
+  merged: '0x0',
+};
+// 'merged' KHÔNG nằm trong danh sách này: nó là chế độ loại trừ (chỉ 1 file, đè hết các phần kia).
+const FLASH_KIND_ORDER = ['bootloader', 'partitions', 'firmware', 'spiffs'];
+
+// Helper: Trích xuất số phiên bản x.x.x từ chuỗi
+function extractVersion(text) {
+  if (!text) return "unknown";
+  const match = text.match(/\d+\.\d+\.\d+/);
+  return match ? match[0].trim() : "unknown";
+}
+
+// Client đang mở Web UI là điện thoại/máy tính bảng?
+// Web Serial (COM port) CHỈ có trên Chrome/Edge desktop ⇒ máy mobile KHÔNG được chọn đường COM port.
+function isMobileClient() {
+  const uaData = navigator.userAgentData;
+  if (uaData && typeof uaData.mobile === 'boolean') return uaData.mobile;
+  return /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
+}
+
+// Chế độ cài trong modal update — 2 RADIO cùng name="update-mode" (luôn có đúng 1 cái được chọn ⇒
+// không còn trạng thái "không chọn gì" nên không thể update mà không rõ mode):
+//   'com'   = Update via COM port (ESP Web Tools)
+//   'local' = Update via OTA — theo version đang chọn, hoặc đẩy file .bin đã chọn qua Wi-Fi
+//   'none'  = không radio nào được render (mobile/tablet) ⇒ nút START UPDATE bị khoá
+function getUpdateModeChoice() {
+  if (document.getElementById('update-via-usb')?.checked) return 'com';
+  if (document.getElementById('update-local-wifi-check')?.checked) return 'local';
+  return 'none';
+}
+
+
+// ===== MODAL FUNCTIONS =====
+const modal = document.getElementById('generic-modal');
+const modalTitle = document.getElementById('modal-title');
+const modalBody = document.getElementById('modal-body');
+const modalFooter = document.getElementById('modal-footer');
+const modalCloseBtn = document.getElementById('modal-close-btn');
+const otaInstallOverlay = document.getElementById('ota-install-overlay');
+const otaInstallRing = document.getElementById('ota-install-ring');
+const otaInstallPercent = document.getElementById('ota-install-percent');
+const otaInstallPhase = document.getElementById('ota-install-phase');
+const otaInstallViewInstalling = document.getElementById('ota-install-view-installing');
+const otaInstallViewSuccess = document.getElementById('ota-install-view-success');
+const otaInstallSuccessCountdown = document.getElementById('ota-install-success-countdown');
+let otaSuccessCountdownTimer = null;
+
+function showModal(title, content, buttons = []) {
+  if (!modal) return;
+  
+  // Tự động thêm icon cảnh báo nếu phát hiện từ khóa lỗi
+  let displayTitle = title;
+  const t = title.toLowerCase();
+  const c = (typeof content === 'string') ? content.toLowerCase() : '';
+
+  if (t.includes('blocked') || t.includes('error') || t.includes('warning') || 
+      c.includes('blocked') || c.includes('locked') || c.includes('error') || c.includes('failed') || 
+      c.includes('hard limit reached') || c.includes('out of limit')) {
+    if (!displayTitle.includes('⚠')) displayTitle = '⚠ ' + displayTitle;
+  }
+
+  modal.classList.remove('modal-passive', 'modal-detached');
+  modalTitle.textContent = displayTitle;
+  modalBody.innerHTML = content;
+  modalFooter.innerHTML = '';
+
+  buttons.forEach(btnInfo => {
+    const button = document.createElement('button');
+    button.textContent = btnInfo.text;
+    button.className = `btn ${btnInfo.class || 'btn-secondary'}`;
+    if (btnInfo.id) button.id = btnInfo.id;
+    button.addEventListener('click', () => {
+      if (btnInfo.callback) {
+        btnInfo.callback();
+      }
+      // By default, close modal on button click, unless specified otherwise
+      if (btnInfo.closeOnClick !== false) {
+          hideModal();
+      }
+    });
+    modalFooter.appendChild(button);
+  });
+
+  modal.style.display = 'block';
+}
+
+function hideModal() {
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('modal-passive', 'modal-detached');
+  }
+  clearUsbDashboardHost(document.getElementById('update-modal-usb-host'));
+  activeSoftLimitErrorKey = '';
+  // Đóng modal (X / Cancel / click ra ngoài) ⇒ bỏ cờ `?updates=1` (hoặc `#updates`) trên URL,
+  // nhờ vậy nhấn reload sau đó KHÔNG tự mở lại modal "Available Updates".
+  clearUpdateModalUrlFlag();
+}
+
+// Bỏ cờ mở sẵn modal update trên thanh địa chỉ (giữ nguyên các query/hash khác).
+function clearUpdateModalUrlFlag() {
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    ['updates', 'update'].forEach((key) => {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    });
+
+    let hash = url.hash;
+    if (hash === '#updates') {
+      hash = '';
+      changed = true;
+    }
+
+    if (!changed) return;
+
+    const query = url.searchParams.toString();
+    history.replaceState(null, '', url.pathname + (query ? '?' + query : '') + hash);
+  } catch (error) {
+    // Trình duyệt không hỗ trợ URL/replaceState (rất cũ) ⇒ bỏ qua, đây chỉ là tiện ích URL
+  }
+}
+
+// ===== CONNECTION LOCKED OVERLAY =====
+// Hiển thị overlay khóa toàn màn hình khi bị từ chối kết nối
+// Overlay này KHÔNG THỂ ĐÓNG, chỉ có nút "Close This Page"
+function showConnectionLockedOverlay(reason) {
+  const overlay = document.getElementById('connection-locked-overlay');
+  const reasonEl = document.getElementById('connection-locked-reason');
+  if (!overlay) return;
+
+  if (reasonEl) {
+    reasonEl.textContent = reason;
+  }
+
+  // Ẩn toàn bộ nội dung trang, chỉ hiện overlay
+  overlay.classList.remove('hidden');
+
+  // Vô hiệu hóa tất cả tương tác với trang bên dưới
+  document.body.style.overflow = 'hidden';
+
+  // Dừng mọi kết nối đang chờ
+  if (reconnectInterval) {
+    clearInterval(reconnectInterval);
+    reconnectInterval = null;
+  }
+}
+
+// Gắn sự kiện cho nút "Close This Page"
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('connection-locked-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      // Thử đóng tab/cửa sổ, nếu không được thì chuyển hướng
+      if (window.close) {
+        window.close();
+      }
+      // Fallback: nếu window.close() không hoạt động (trên mobile hoặc tab không được mở bởi script)
+      // thì hiển thị thông báo yêu cầu người dùng tự đóng
+      setTimeout(() => {
+        document.body.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0D1B2B;color:#e0e0e0;font-family:sans-serif;text-align:center;padding:20px;">
+            <div>
+              <div style="font-size:64px;margin-bottom:16px;">${svgIco('i-lock')}</div>
+              <h2 style="color:#e74c3c;margin-bottom:12px;">Please Close This Tab</h2>
+              <p style="color:#a0a0a0;">The connection was rejected. Please manually close this browser tab.</p>
+            </div>
+          </div>`;
+      }, 300);
+    });
+  }
+});
+
+function hideOtaProgressUI() {
+  const progressContainer = document.getElementById('ota-progress-container');
+  if (progressContainer) progressContainer.classList.add('hidden');
+}
+
+function showOtaInstallOverlay(phaseText = 'Preparing update...', percent = 0) {
+  hideOtaProgressUI();
+  if (!otaInstallOverlay) return;
+  if (otaSuccessCountdownTimer) {
+    clearInterval(otaSuccessCountdownTimer);
+    otaSuccessCountdownTimer = null;
+  }
+  if (otaInstallViewInstalling) otaInstallViewInstalling.classList.remove('hidden');
+  if (otaInstallViewSuccess) otaInstallViewSuccess.classList.add('hidden');
+  otaInstallOverlay.classList.remove('hidden');
+  updateOtaInstallOverlay(percent, phaseText);
+}
+
+function updateOtaInstallOverlay(percent, phaseText) {
+  if (!otaInstallOverlay) return;
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  if (otaInstallRing) {
+    otaInstallRing.style.setProperty('--ota-progress-angle', `${safePercent * 3.6}deg`);
+  }
+  if (otaInstallPercent) otaInstallPercent.textContent = `${Math.round(safePercent)}%`;
+  if (otaInstallPhase && phaseText) otaInstallPhase.textContent = phaseText;
+}
+
+function hideOtaInstallOverlay() {
+  if (!otaInstallOverlay) return;
+  if (otaSuccessCountdownTimer) {
+    clearInterval(otaSuccessCountdownTimer);
+    otaSuccessCountdownTimer = null;
+  }
+  otaInstallOverlay.classList.add('hidden');
+}
+
+function showOtaInstallSuccessCountdown(seconds = 3) {
+  if (!otaInstallOverlay) return;
+  if (otaInstallViewInstalling) otaInstallViewInstalling.classList.add('hidden');
+  if (otaInstallViewSuccess) otaInstallViewSuccess.classList.remove('hidden');
+  otaInstallOverlay.classList.remove('hidden');
+
+  let remaining = seconds;
+  if (otaInstallSuccessCountdown) {
+    otaInstallSuccessCountdown.textContent = `REBOOTING IN ${remaining}s`;
+  }
+
+  if (otaSuccessCountdownTimer) {
+    clearInterval(otaSuccessCountdownTimer);
+  }
+
+  otaSuccessCountdownTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(otaSuccessCountdownTimer);
+      otaSuccessCountdownTimer = null;
+      if (otaInstallSuccessCountdown) {
+        otaInstallSuccessCountdown.textContent = 'REBOOTING...';
+      }
+      return;
+    }
+    if (otaInstallSuccessCountdown) {
+      otaInstallSuccessCountdown.textContent = `REBOOTING IN ${remaining}s`;
+    }
+  }, 1000);
+}
+
+function clampInt(value, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return min;
+  return Math.min(max, Math.max(min, Math.round(num)));
+}
+
+let activeSoftLimitErrorKey = '';
+
+function normalizeSoftLimitInputs() {
+  const azMinEl = document.getElementById('limit-az-min');
+  const azMaxEl = document.getElementById('limit-az-max');
+  const altMinEl = document.getElementById('limit-alt-min');
+  const altMaxEl = document.getElementById('limit-alt-max');
+
+  if (!azMinEl || !azMaxEl || !altMinEl || !altMaxEl) {
+    return null;
+  }
+
+  const limits = {
+    az_min: clampInt(azMinEl.value, -9, 9),
+    az_max: clampInt(azMaxEl.value, -9, 9),
+    alt_min: clampInt(altMinEl.value, -14, 14),
+    alt_max: clampInt(altMaxEl.value, -14, 14)
+  };
+
+  azMinEl.value = String(limits.az_min);
+  azMaxEl.value = String(limits.az_max);
+  altMinEl.value = String(limits.alt_min);
+  altMaxEl.value = String(limits.alt_max);
+
+  return limits;
+}
+
+function validateSoftLimitsRelation(showModalOnError = false) {
+  const limits = normalizeSoftLimitInputs();
+  if (!limits) return true;
+
+  let errorKey = '';
+  let errorMsg = '';
+
+  if (limits.az_min >= limits.az_max) {
+    errorKey = 'az';
+    errorMsg = 'AZ Min must be smaller than AZ Max.';
+  }
+  else if (limits.alt_min >= limits.alt_max) {
+    errorKey = 'alt';
+    errorMsg = 'ALT Min must be smaller than ALT Max.';
+  }
+
+  if (!errorKey) {
+    activeSoftLimitErrorKey = '';
+    return true;
+  }
+
+  if (showModalOnError && activeSoftLimitErrorKey !== errorKey) {
+    showModal('Invalid Soft Limit', errorMsg, [{ text: 'OK', class: 'btn-warning' }]);
+  }
+  activeSoftLimitErrorKey = errorKey;
+  return false;
+}
+
+function validateSoftLimitsBeforeSave() {
+  if (!validateSoftLimitsRelation(true)) {
+    return false;
+  }
+  return true;
+}
+
+function bindSoftLimitInputGuards() {
+  const ids = ['limit-az-min', 'limit-az-max', 'limit-alt-min', 'limit-alt-max'];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const onUserEdit = () => {
+      validateSoftLimitsRelation(true);
+    };
+    el.addEventListener('input', onUserEdit);
+    el.addEventListener('change', onUserEdit);
+    el.addEventListener('blur', onUserEdit);
+  });
+}
+
+function hasBackendConnection() {
+  return Boolean(ws && ws.readyState === WebSocket.OPEN && backendWsConnected);
+}
+
+function markBackendDisconnected() {
+  backendWsConnected = false;
+  backendWsChecked = true;
+}
+
+function waitForBackendStatus(timeoutMs = 1200) {
+  if (backendWsChecked) {
+    return Promise.resolve(hasBackendConnection());
+  }
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (backendWsChecked || (Date.now() - startedAt) >= timeoutMs) {
+        clearInterval(timer);
+        resolve(hasBackendConnection());
+      }
+    }, 100);
+  });
+}
+
+// Lý do thất bại gần nhất của fetchJsonWithTimeout (hiện kèm trong thông báo "No Internet")
+let lastFetchError = '';
+
+// fetch + parse JSON, hết thời gian/thất bại ⇒ trả null (dùng để dò internet: client trước,
+// ESP sau — ESP phục vụ /api/ota/catalog khi chính client không có internet)
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const body = await response.json();
+        if (body && body.message) detail = body.message;
+      } catch (ignored) {
+        // body không phải JSON — dùng mã HTTP
+      }
+      lastFetchError = detail || `HTTP ${response.status}`;
+      return null;
+    }
+    lastFetchError = '';
+    return await response.json();
+  } catch (error) {
+    lastFetchError = error.name === 'AbortError' ? 'timeout' : error.message;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function connectWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
+  
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+    backendWsConnected = true;
+    backendWsChecked = true;
+    isRebooting = false; // reset trạng thái chờ reboot khi kết nối mới
+    // Trạng thái sẽ được cập nhật khi nhận gói tin đầu tiên chứa RSSI
+    if (reconnectInterval) clearInterval(reconnectInterval);
+  };
+  
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      // --- CONNECTION CONTROL: Xử lý thông báo từ chối kết nối từ Server ---
+      if (data.cmd === 'connectionRejected') {
+        console.warn('WebSocket connection rejected:', data.reason);
+        showConnectionLockedOverlay(data.reason || 'System is busy.');
+        // Đóng WebSocket và KHÔNG auto-reconnect
+        if (ws) {
+          ws.onclose = null; // Ngăn onclose gọi reconnect
+          ws.close();
+          ws = null;
+        }
+        if (reconnectInterval) {
+          clearInterval(reconnectInterval);
+          reconnectInterval = null;
+        }
+        return;
+      }
+
+      updateUI(data);
+    } catch (e) {
+      console.error('JSON parse error:', e);
+    }
+  };
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+    markBackendDisconnected();
+    markNetworkOffline(); // AP/STA về trạng thái "chưa biết"
+  };
+  
+  ws.onclose = () => {
+    console.log('WebSocket closed');
+    markBackendDisconnected();
+    markNetworkOffline(); // AP/STA về trạng thái "chưa biết"
+    // Attempt reconnect every 3 seconds (trừ khi đã bị từ chối)
+    if (!reconnectInterval) {
+      reconnectInterval = setInterval(connectWebSocket, 3000);
+    }
+  };
+}
+
+// ===== HELPER: FORMAT DMS =====
+function toDMS(deg) {
+  const sign = deg >= 0 ? '+' : '-';
+  const abs = Math.abs(deg);
+  let d = Math.floor(abs);
+  let m = Math.floor((abs - d) * 60);
+  let s = ((abs - d) * 60 - m) * 60;
+  
+  // Làm tròn giây lấy số nguyên
+  s = Math.round(s);
+  if (s >= 60) { s = 0; m++; }
+  if (m >= 60) { m = 0; d++; }
+
+  return `${sign}${d}° ${m.toString().padStart(2, '0')}' ${s.toString().padStart(2, '0')}"`;
+}
+
+// ===== UI UPDATE =====
+function updateUI(data) {
+  if(data.status){
+    console.log('WebSocket status:', data.status);
+    if(data.status === 'configSaved'){
+      window._applyAckPending = false;
+      if (window._saveFlow && window._saveFlow.active && !window._saveFlow.confirmed) {
+        // Chỉ hành động khi đây là ack của CHÍNH web-save (origin=webSave).
+        // configSaved từ plugin serial (ApplyConf) không có origin -> bỏ qua, vẫn chờ.
+        if (data.origin === 'webSave') {
+          window._saveFlow.confirmed = true;
+          const msgEl = document.querySelector('#save-message');
+          if (msgEl) { msgEl.style.display = 'block'; msgEl.textContent = '✓ Saved to flash. Rebooting...'; }
+          // Backend đã lưu xong -> giờ mới ra lệnh reboot, rồi reload ngay (không đếm ngược).
+          sendCommand('reboot', {});
+          setTimeout(() => location.reload(), 500);
+        }
+      } else {
+        showMessage('✓ Settings saved to flash.', '#save-message', 3000);
+      }
+    } else if(data.status === 'configApplied'){
+      window._applyAckPending = false;
+      showMessage('↯ Settings applied (not saved). Reboot to discard.', '#save-message', 4000);
+    } else if(data.status === 'locked'){
+      // Web bị khóa bởi PC/Serial plugin: lệnh save/apply không được xử lý.
+      window._applyAckPending = false;
+      if (window._savePending) window._savePending = null;
+      showMessage('⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or close its connection, then reload to gain control.', '#save-message', 8000);
+    }
+  }
+
+  // Config nhận từ serial (broadcastConfig) - tương đương nhấn Apply
+  if (data.config_pushed && data.motor) {
+    showMessage('↯ Config received from device. Applied.', '#save-message', 4000);
+  }
+
+  // Đồng bộ ALIGN ALL mode (radio Admin Config) với chế độ đã lưu trên device
+  if (data.align_mode !== undefined && data.align_mode.simultaneous !== undefined) {
+    const sim = document.getElementById('align-all-mode-simultaneous');
+    const seq = document.getElementById('align-all-mode-sequential');
+    if (sim) sim.checked = !!data.align_mode.simultaneous;
+    if (seq) seq.checked = !data.align_mode.simultaneous;
+  }
+  
+  // Xử lý phản hồi đăng nhập Admin
+  if (data.cmd === 'loginAdmin') {
+    const passInput = document.getElementById('admin-pass-input');
+    if (data.result) {
+      const adminPanel = document.querySelector('.admin-panel');
+      if (adminPanel) {
+        adminPanel.classList.add('admin-panel-active');
+      }
+      hideModal(); // Close login modal on success
+      showMessage('Admin mode unlocked', '#save-message', 2000);
+    } else {
+      const errorEl = document.getElementById('admin-login-error');
+      if (errorEl) {
+        errorEl.textContent = 'Incorrect Password!';
+        errorEl.style.display = 'block';
+      }
+      const passInput = document.getElementById('admin-pass-input-modal');
+      if (passInput) {
+        passInput.value = '';
+        passInput.focus();
+      }
+    }
+  }
+
+  // Xử lý phản hồi đổi mật khẩu Admin
+  if (data.cmd === 'changePassword') {
+    if (data.result) {
+      showMessage('✓ Password changed successfully!', '#change-pass-msg', 4000);
+      const oldEl = document.getElementById('admin-old-pass');
+      const newEl = document.getElementById('admin-new-pass');
+      if (oldEl) oldEl.value = '';
+      if (newEl) newEl.value = '';
+    } else {
+      // Nói rõ mật khẩu mặc định để người dùng khỏi nhầm với mật khẩu WiFi/AP; giữ lâu hơn cho dễ thấy.
+      showMessage('⚠ Failed: wrong CURRENT password (admin default is "password", not the WiFi/AP password) or invalid new password (1-63 chars).', '#change-pass-msg', 8000);
+    }
+  }
+
+  // Xử lý phản hồi Factory Reset (chỉ chạy khi mật khẩu factory "password" đúng)
+  if (data.cmd === 'factoryReset') {
+    if (data.result) {
+      hideModal();
+      showMessage('Factory reset accepted. Device is rebooting...', '#save-message', 8000);
+    } else {
+      showMessage('⚠ Wrong admin password. Factory reset cancelled.', '#save-message', 4000);
+      const passEl = document.getElementById('factory-reset-pass');
+      if (passEl) { passEl.value = ''; passEl.focus(); }
+    }
+  }
+
+  // Xử lý kết quả Calibration
+  if (data.cmd === 'calibResult') {
+    if (data.axis === 'all') {
+        const msg = `<strong>Calibration ALL Axes Completed!</strong><br><br>` +
+                    `<strong>Azimuth:</strong> ${data.az_steps} steps / ${data.az_travel}° = ${data.az_spd.toFixed(5)} steps/deg<br>` +
+                    `<strong>Altitude:</strong> ${data.alt_steps} steps / ${data.alt_travel}° = ${data.alt_spd.toFixed(5)} steps/deg`;
+        
+        showModal('Calibration Result', msg, [
+            { text: 'Apply All', class: 'btn-success', callback: () => {
+                document.getElementById('az-spd').value = data.az_spd.toFixed(5);
+                document.getElementById('alt-spd').value = data.alt_spd.toFixed(5);
+                showMessage('Values applied. Please click SAVE ALL to persist.', '#save-message', 5000);
+            }},
+            { text: 'Apply result & Auto center', class: 'btn-warning', callback: () => {
+                document.getElementById('az-spd').value = data.az_spd.toFixed(5);
+                document.getElementById('alt-spd').value = data.alt_spd.toFixed(5);
+                sendCommand('autoCenter', { axis: 'all' });
+                isCalibAutoCenterPending = true; // Đánh dấu đang đợi Auto Center hoàn tất
+                showMessage('Moving to Center & Setting Home...', '#save-message', 5000);
+            }},
+            { text: 'Close', class: 'btn-secondary' }
+        ]);
+        return;
+    }
+
+    lastCalibData = data;
+    let axisName = data.axis === 'az' ? 'Azimuth' : 'Altitude';
+    let range = data.travel || (data.axis === 'az' ? 20 : 30);
+    const msg = `<strong>${axisName} Calibration Completed!</strong><br><br>` +
+                `Total Steps: ${data.steps} (Range ~${range}°)<br>` +
+                `Calculated: <strong>${data.spd.toFixed(5)}</strong> steps/deg`;
+
+    showModal('Calibration Result', msg, [
+        { text: 'Apply Steps/Deg Only', class: 'btn-success', callback: () => {
+            document.getElementById(`${lastCalibData.axis}-spd`).value = lastCalibData.spd.toFixed(5);
+            showMessage('Value applied. Please click SAVE ALL to persist.', '#save-message', 5000);
+        }},
+        { text: 'Apply result & Auto center', class: 'btn-warning', callback: () => {
+            document.getElementById(`${lastCalibData.axis}-spd`).value = lastCalibData.spd.toFixed(5);
+            sendCommand('autoCenter', { axis: lastCalibData.axis });
+            isCalibAutoCenterPending = true; // Đánh dấu đang đợi Auto Center hoàn tất
+            showMessage('Moving to Center & Setting Home...', '#save-message', 5000);
+        }},
+        { text: 'Close', class: 'btn-secondary' }
+    ]);
+  }
+
+  // Xử lý kết quả Tuning
+  if (data.cmd === 'tuningResult') {
+    const axisName = data.axis.toUpperCase();
+    // Ô nhập Scale đã bị ẩn khỏi UI (Sensorless Auto Tuning): vẫn nhận kết quả tuning đến từ
+    // plugin/Serial nên phải đọc có guard, thiếu ô ⇒ dùng mặc định 80%.
+    const scaleEl = document.getElementById('tuning-scale-pct');
+    const scalePct = (scaleEl && parseInt(scaleEl.value)) || 80;
+    const avgSgResults = data.avg_sg_results;
+    
+    if (!avgSgResults || !Array.isArray(avgSgResults)) {
+      showModal('⚠ Error', 'Missing 5-level results from firmware.', [{ text: 'OK' }]);
+      return;
+    }
+
+    let modalContent = `<strong>${axisName} Tuning Results:</strong><br><br>`;
+    modalContent += `<table class="tuning-results-table"><thead><tr><th>Level</th><th>Avg SG</th><th>Crit.(100%)</th><th>SGTHRS (${scalePct}%)</th></tr></thead><tbody>`;
+
+    const finalSgThrsValues = [];
+
+    for (let i = 0; i < avgSgResults.length; i++) {
+        const speedLevel = i + 1;
+        const avgSG = avgSgResults[i];
+        const baseSGTHRS = Math.floor(avgSG > 0 ? avgSG / 2 : 20);
+        const finalSGTHRS = Math.floor(baseSGTHRS * (scalePct / 100));
+        finalSgThrsValues.push(finalSGTHRS);
+
+        modalContent += `<tr><td>${speedLevel}</td><td>${avgSG}</td><td>${baseSGTHRS}</td><td><strong style="color:var(--success)">${finalSGTHRS}</strong></td></tr>`;
+    }
+    modalContent += `</tbody></table><br>`;
+    modalContent += `<div style="margin-top:10px;">Apply these 5 values to the inputs?</div>`;
+
+    showModal('Tuning Result', 
+      modalContent,
+      [
+        { text: 'Apply to All Levels', class: 'btn-success', callback: () => {
+          for(let i=0; i<finalSgThrsValues.length; i++) {
+            const inputEl = document.getElementById(`${data.axis}-sg-${i+1}`);
+            if (inputEl) inputEl.value = finalSgThrsValues[i];
+          }
+          showMessage('Sensitivity updated. Click SAVE ALL to store.', '#save-message', 5000);
+        }},
+        { text: 'Cancel' }
+      ]
+    );
+  }
+
+  // Xử lý kết quả TCOOL Tuning
+  if (data.cmd === 'tuningTcoolResult') {
+    const axisName = data.axis.toUpperCase();
+    const avgResults = data.avg_tstep_results; // Mảng 5 cấp: 2, 4, 8, 16, 32
+    // Ô nhập TC(%) đã bị ẩn khỏi UI (Sensorless Auto Tuning) ⇒ thiếu ô thì dùng mặc định 120%.
+    const tcoolScaleEl = document.getElementById('tuning-tcool-scale-pct');
+    const tcoolScalePct = (tcoolScaleEl && parseInt(tcoolScaleEl.value)) || 120;
+    
+    let modalContent = `<strong>${axisName} TCOOLTHRS Tuning Results:</strong><br><br>`;
+    modalContent += `<table class="tuning-results-table"><thead><tr><th>Microstep</th><th>Max TSTEP</th><th>Proposed (${tcoolScalePct}%)</th></tr></thead><tbody>`;
+
+    const msLevels = [2, 4, 8, 16, 32];
+    const finalTcoolValues = [];
+
+    for (let i = 0; i < avgResults.length; i++) {
+        const maxVal = avgResults[i];
+        const proposed = Math.floor(maxVal * (tcoolScalePct / 100)); 
+        finalTcoolValues.push(proposed);
+
+        modalContent += `<tr><td>MS ${msLevels[i]}</td><td>${maxVal}</td><td><strong style="color:var(--success)">${proposed}</strong></td></tr>`;
+    }
+    modalContent += `</tbody></table><br><div style="margin-top:10px;">Apply these 5 values to the MS 2,4,8,16,32 inputs?</div>`;
+
+    showModal('TCOOLTHRS Result', modalContent, [
+      { text: 'Apply', class: 'btn-success', callback: () => {
+        for(let i=0; i<msLevels.length; i++) {
+          const inputEl = document.getElementById(`${data.axis}-tcool-${msLevels[i]}`);
+          if (inputEl) inputEl.value = finalTcoolValues[i];
+        }
+        showMessage('TCOOLTHRS updated. Click SAVE ALL.', '#save-message', 5000);
+      }},
+      { text: 'Cancel' }
+    ]);
+  }
+
+  if (data.alert && !muteAllErrors) {   // #22: Test mode đang bật ⇒ bỏ mọi popup báo lỗi/cảnh báo
+    showModal('System Message', data.alert, [{ text: 'OK', class: 'btn-primary' }]);
+  }
+  if (data.pos_az !== undefined) {
+    const el = document.getElementById('pos-az');
+    if (el) el.textContent = toDMS(data.pos_az);
+    const homeEl = document.getElementById('home-az-current');
+    if (homeEl) homeEl.textContent = toDMS(data.pos_az);
+  }
+  if (data.pos_alt !== undefined) {
+    const el = document.getElementById('pos-alt');
+    if (el) el.textContent = toDMS(data.pos_alt);
+    const homeEl = document.getElementById('home-alt-current');
+    if (homeEl) homeEl.textContent = toDMS(data.pos_alt);
+  }
+  if (data.align_moved_az !== undefined) {
+    const el = document.getElementById('align-moved-az');
+    if (el) el.textContent = toDMS(data.align_moved_az);
+  }
+  if (data.align_moved_alt !== undefined) {
+    const el = document.getElementById('align-moved-alt');
+    if (el) el.textContent = toDMS(data.align_moved_alt);
+  }
+  if (data.steps_az !== undefined) {
+    const el = document.getElementById('steps-az');
+    if (el) el.textContent = data.steps_az;
+  }
+  if (data.steps_alt !== undefined) {
+    const el = document.getElementById('steps-alt');
+    if (el) el.textContent = data.steps_alt;
+  }
+  if (data.out_speed_az !== undefined) {
+    const el = document.getElementById('out-speed-az');
+    if (el) el.textContent = data.out_speed_az.toFixed(4);
+  }
+  if (data.out_speed_alt !== undefined) {
+    const el = document.getElementById('out-speed-alt');
+    if (el) el.textContent = data.out_speed_alt.toFixed(4);
+  }
+  if (data.speed_az !== undefined) {
+    const el = document.getElementById('speed-az');
+    if (el) el.textContent = data.speed_az.toFixed(3);
+  }
+  if (data.speed_alt !== undefined) {
+    const el = document.getElementById('speed-alt');
+    if (el) el.textContent = data.speed_alt.toFixed(3);
+  }
+  if (data.homed !== undefined) {
+    isSystemHomed = data.homed; // Cập nhật biến toàn cục
+    document.getElementById('homed-status').innerHTML = svgIco('i-home') + ' Homed: <strong>' + (data.homed ? 'Yes' : 'No') + '</strong>';
+    
+    // Kiểm tra nếu vừa hoàn thành Auto Center từ quy trình Calib
+    if (isSystemHomed && isCalibAutoCenterPending) {
+      isCalibAutoCenterPending = false; // Reset cờ
+      showModal(
+        'Calibration & Set Home',
+        'Calibration & set home COMPLETED.',
+        [
+          { 
+            text: 'SET HOME, SAVE & REBOOT NOW', 
+            class: 'btn-success', 
+            callback: () => {
+              sendCommand('setHome', {}); // Đảm bảo gửi lệnh Set Home
+              const config = collectConfig();
+              sendCommand('saveConfig', config);
+              showMessage('Setting Home & Saving...', '#save-message', 2000);
+              // Đợi 1 chút để lệnh saveConfig được xử lý rồi mới gửi lệnh reboot
+              setTimeout(() => {
+                sendCommand('reboot', {});
+                setRebootingStatus();
+                showMessage('System Rebooting...', '#save-message', 10000);
+                setTimeout(() => location.reload(), 5000);
+              }, 1000);
+            }
+          },
+          { text: 'CANCEL', class: 'btn-secondary' } // Chỉ đóng modal, kết quả đã được điền từ bước trước
+        ]
+      );
+    }
+  }
+  
+  if (data.sys_status !== undefined) {
+    currentSystemStatus = data.sys_status; // #27: nút SAVE ALIGNED POSITION chỉ cho lưu khi READY
+    if (data.sys_status === 'REBOOTING') {
+      isRebooting = true;
+    }
+    if (isRebooting && data.sys_status !== 'REBOOTING') {
+      // Đang chờ reboot: giữ nguyên trạng thái REBOOTING, không để bị ghi đè
+    } else {
+      const el = document.getElementById('system-status');
+      if (el) {
+        applySystemStatus(data.sys_status); // màn hình nhỏ: COMPLETED xuống dòng + thu nhỏ chữ
+        el.classList.add('font-bold');
+        
+        // Cập nhật màu sắc trạng thái
+        el.classList.remove('status-text-success', 'status-text-danger', 'status-text-warning');
+        let colorClass = 'status-text-success';
+        if (data.sys_status === 'ERROR') colorClass = 'status-text-danger';
+        else if (data.sys_status === 'REBOOTING') colorClass = 'status-text-success';
+        else if (data.sys_status !== 'READY') colorClass = 'status-text-warning';
+        el.classList.add(colorClass);
+
+        // Khóa/Mở khóa các nút điều khiển dựa trên trạng thái lỗi
+        hasSystemError = (data.sys_status === 'ERROR');
+        updateMotionControls();
+      }
+    }
+  }
+
+  // Cập nhật trạng thái Calib để khóa nút
+  if (data.isCalibrating !== undefined) {
+    isSystemCalibrating = data.isCalibrating;
+    updateMotionControls();
+  }
+
+  if (data.motion_mode !== undefined) {
+    motionMode = data.motion_mode;
+    updateMotionControls();
+  }
+
+  // #29: chiều đang GIẢM TỐC (firmware) ⇒ khoá nút mũi tên NGƯỢC chiều cho tới khi trục dừng hẳn
+  if (data.ramp_az !== undefined || data.ramp_alt !== undefined) {
+    if (data.ramp_az !== undefined) rampDirAz = Number(data.ramp_az) || 0;
+    if (data.ramp_alt !== undefined) rampDirAlt = Number(data.ramp_alt) || 0;
+    updateMotionControls();
+  }
+  
+  // Cập nhật thông tin phiên bản từ Server
+  if (data.fw_ver !== undefined) {
+    // Lưu version để so sánh nhưng chỉ hiển thị một dòng Firmware x.x.x trên header.
+    const newFwVer = extractVersion(data.fw_ver);
+    const fwVerChanged = newFwVer !== currentFwVer;
+    currentFwVer = newFwVer;
+    const el = document.getElementById('display-fw-ver');
+    if (el) el.textContent = `Firmware ${currentFwVer}`;
+    // Version THẬT của thiết bị vừa tới ⇒ so lại với danh sách update (ngôi sao cạnh số version).
+    // Chỉ chạy khi version đổi để không lặp lại mỗi frame telemetry.
+    if (fwVerChanged) refreshFwUpdateBadge();
+  }
+
+  if (data.rssi !== undefined) {
+    updateWifiIcon(data.rssi);
+  }
+
+  // 3 hàng header: "AP: ● <IP>" + "STA: <thanh sóng><dấu> <IP>" (icon tô màu theo trạng thái)
+  // (`link` có ở frame đầu tiên khi kết nối; ap_ready/ap_ip/sta_qual/sta_ip có trong telemetry)
+  if (data.link !== undefined) {
+    currentLinkPath = String(data.link || '');
+    renderNetworkRows();
+  }
+  if (data.ap_ready !== undefined) {
+    currentApReady = Boolean(data.ap_ready);
+    renderNetworkRows();
+  }
+  if (data.ap_ip !== undefined) {
+    currentApIp = data.ap_ip || '';
+    renderNetworkRows();
+  }
+  if (data.sta_qual !== undefined || data.sta_ip !== undefined) {
+    if (data.sta_qual !== undefined) currentStaQual = Number(data.sta_qual) || 0;
+    if (data.sta_ip !== undefined) currentStaIp = data.sta_ip || '';
+    renderNetworkRows();
+  }
+  
+  if (data.wifi_scan !== undefined) {
+    renderWifiList(data.wifi_scan);
+  }
+
+  // Cập nhật biểu đồ StallGuard
+  if (data.sg_az !== undefined && data.sg_alt !== undefined) {
+    const isRunning = (data.running !== undefined) ? data.running : true;
+    if (!hasSystemError && isRunning) updateChart(data.sg_az, data.sg_alt, data.cs_az, data.cs_alt, data.tstep_az, data.tstep_alt);
+  }
+
+  // Cập nhật đèn báo DIAG
+  if (data.diag_az !== undefined) {
+    const dot = document.getElementById('diag-az-status');
+    if (dot) {
+      if (data.diag_az) dot.classList.add('active'); else dot.classList.remove('active');
+    }
+  }
+  if (data.diag_alt !== undefined) {
+    const dot = document.getElementById('diag-alt-status');
+    if (dot) {
+      if (data.diag_alt) dot.classList.add('active'); else dot.classList.remove('active');
+    }
+  }
+  
+  // Xử lý hiển thị trạng thái Homing... / Completed
+  if (data.isAutoMoving !== undefined) {
+    const statusEl = document.getElementById('homing-process-status');
+    if (statusEl) {
+      if (data.isAutoMoving) {
+        // Đang chạy
+        statusEl.innerHTML = svgIco('i-spin') + ' Homing...';
+        statusEl.className = "homing-status homing-running";
+        wasAutoMoving = true;
+      } else if (wasAutoMoving) {
+        // Vừa chạy xong (chuyển từ true -> false)
+        statusEl.innerHTML = svgIco('i-check') + (isSystemHomed ? ' Homing Completed' : ' Auto Center Done');
+        statusEl.className = "homing-status homing-completed";
+        wasAutoMoving = false;
+        // Ẩn dòng Completed sau 3 giây
+        setTimeout(() => { if(statusEl.textContent.includes("Completed") || statusEl.textContent.includes("Done")) statusEl.style.display = 'none'; }, 3000);
+        
+        // Reset cờ pending nếu chạy single axis (không kích hoạt popup Homed)
+        if (isCalibAutoCenterPending) {
+            isCalibAutoCenterPending = false;
+            if (!isSystemHomed) showMessage('Auto Center Completed.', '#save-message', 3000);
+        }
+      }
+    }
+  }
+  if (data.speedLevel !== undefined) {
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.speed-btn[data-level="${data.speedLevel}"]`);
+    if (btn) btn.classList.add('active');
+  }
+  if (data.ip !== undefined) {
+    const ipEl = document.getElementById('wifi-ip');
+    if (ipEl) {
+      if (ipEl.tagName === 'INPUT') ipEl.value = data.ip;
+      else ipEl.textContent = data.ip;
+    }
+  }
+  if (data.ssid !== undefined) {
+    const el = document.getElementById('wifi-ssid');
+    if (el) el.value = data.ssid;
+  }
+  // Lưu ý BẢO MẬT: password KHÔNG còn nằm trong snapshot/broadcast (xem fillConfigSections bên
+  // firmware) nên KHÔNG tự điền vào ô nhập nữa — chỉ tải khi người dùng bấm con mắt (xem
+  // requestPassword() / applyPasswordFetch()). Ô để trống khi bấm SAVE có nghĩa là "giữ nguyên".
+  if (data.cmd === 'configRead' && data.data !== undefined) {
+    applyPasswordFetch(data.data);
+  }
+  // Cập nhật AP Settings
+  if (data.wifi_ap !== undefined) {
+    if (data.wifi_ap.ssid !== undefined) document.getElementById('ap-ssid').value = data.wifi_ap.ssid;
+    if (data.wifi_ap.ip !== undefined) document.getElementById('ap-ip').value = data.wifi_ap.ip;
+    if (data.wifi_ap.subnet !== undefined) document.getElementById('ap-subnet').value = data.wifi_ap.subnet;
+    if (data.wifi_ap.mdns !== undefined) {   // #23: tên mDNS đang dùng trên thiết bị
+      const m = document.getElementById('mdns-name');
+      if (m) { m.value = data.wifi_ap.mdns; m.dispatchEvent(new Event('input')); }
+    }
+  }
+  // Cập nhật Soft Limits lên giao diện
+  if (data.limits !== undefined) {
+    if (data.limits.az_min !== undefined) document.getElementById('limit-az-min').value = data.limits.az_min;
+    if (data.limits.az_max !== undefined) document.getElementById('limit-az-max').value = data.limits.az_max;
+    if (data.limits.alt_min !== undefined) document.getElementById('limit-alt-min').value = data.limits.alt_min;
+    if (data.limits.alt_max !== undefined) document.getElementById('limit-alt-max').value = data.limits.alt_max;
+    if (data.limits.enable_softlimit !== undefined) {
+      const cb = document.getElementById('enable-softlimit');
+      if (cb) cb.checked = data.limits.enable_softlimit;
+    }
+    normalizeSoftLimitInputs();
+  }
+  // Cập nhật Motor settings
+  if (data.motor !== undefined) {
+    if (data.motor.az_run_ma !== undefined) document.getElementById('az-current-run').value = data.motor.az_run_ma;
+    if (data.motor.az_hold_ma !== undefined) document.getElementById('az-current-hold').value = data.motor.az_hold_ma;
+    if (data.motor.az_boost_pct !== undefined) document.getElementById('az-boost-pct').value = data.motor.az_boost_pct;
+    if (data.motor.az_soft_cs_pct !== undefined && document.getElementById('az-soft-cs-pct')) document.getElementById('az-soft-cs-pct').value = data.motor.az_soft_cs_pct;
+    if (data.motor.az_microsteps !== undefined) {
+      const el = document.getElementById('az-microsteps');
+      el.value = data.motor.az_microsteps;
+      el.dataset.prev = data.motor.az_microsteps; // Lưu lại phiên bản hiện tại từ server
+    }
+    if (data.motor.az_accel !== undefined) document.getElementById('az-accel').value = data.motor.az_accel;
+    if (data.motor.az_decel !== undefined) document.getElementById('az-decel').value = data.motor.az_decel;
+    if (data.motor.az_spd !== undefined) document.getElementById('az-spd').value = data.motor.az_spd;
+    if (data.motor.az_reverse !== undefined) document.getElementById('az-reverse').checked = data.motor.az_reverse;
+    
+    if (data.motor.alt_run_ma !== undefined) document.getElementById('alt-current-run').value = data.motor.alt_run_ma;
+    if (data.motor.alt_hold_ma !== undefined) document.getElementById('alt-current-hold').value = data.motor.alt_hold_ma;
+    if (data.motor.alt_boost_pct !== undefined) document.getElementById('alt-boost-pct').value = data.motor.alt_boost_pct;
+    if (data.motor.alt_soft_cs_pct !== undefined && document.getElementById('alt-soft-cs-pct')) document.getElementById('alt-soft-cs-pct').value = data.motor.alt_soft_cs_pct;
+    if (data.motor.alt_microsteps !== undefined) {
+      const el = document.getElementById('alt-microsteps');
+      el.value = data.motor.alt_microsteps;
+      el.dataset.prev = data.motor.alt_microsteps;
+    }
+    if (data.motor.max_speed !== undefined) document.getElementById('max-speed').value = data.motor.max_speed;
+    if (data.motor.alt_accel !== undefined) document.getElementById('alt-accel').value = data.motor.alt_accel;
+    if (data.motor.alt_decel !== undefined) document.getElementById('alt-decel').value = data.motor.alt_decel;
+    if (data.motor.alt_spd !== undefined) document.getElementById('alt-spd').value = data.motor.alt_spd;
+    if (data.motor.alt_reverse !== undefined) document.getElementById('alt-reverse').checked = data.motor.alt_reverse;
+    
+    if (data.motor.az_spread_cycle !== undefined) document.getElementById(data.motor.az_spread_cycle ? 'az-mode-spreadcycle' : 'az-mode-stealthchop').checked = true;
+    if (data.motor.alt_spread_cycle !== undefined) document.getElementById(data.motor.alt_spread_cycle ? 'alt-mode-spreadcycle' : 'alt-mode-stealthchop').checked = true;
+    if (data.motor.show_steps !== undefined) {
+      document.getElementById('show-steps').checked = data.motor.show_steps;
+      toggleStepsDisplay(data.motor.show_steps);
+    }
+    // #28: mức âm lượng còi (4 radio: 0 tắt / 1 nhỏ / 2 vừa / 3 to). Vẫn nhận enable_beep của bản firmware cũ.
+    if (data.motor.beep_level !== undefined) {
+      const rb28 = document.getElementById('beep-level-' + String(data.motor.beep_level));
+      if (rb28) rb28.checked = true;
+    } else if (data.motor.enable_beep !== undefined) {
+      const rb28 = document.getElementById('beep-level-' + (data.motor.enable_beep ? '3' : '0'));
+      if (rb28) rb28.checked = true;
+    }
+    if (data.motor.az_sg_thrs !== undefined) {
+      _hlCache.az_sg_thrs = data.motor.az_sg_thrs;
+      data.motor.az_sg_thrs.forEach((val, i) => { const el = document.getElementById(`az-sg-${i+1}`); if(el) el.value = val; });
+    }
+    if (data.motor.alt_sg_thrs !== undefined) {
+      _hlCache.alt_sg_thrs = data.motor.alt_sg_thrs;
+      data.motor.alt_sg_thrs.forEach((val, i) => { const el = document.getElementById(`alt-sg-${i+1}`); if(el) el.value = val; });
+    }
+    if (data.motor.az_tcool_presets !== undefined) {
+      _hlCache.az_tcool_presets = data.motor.az_tcool_presets;
+      const msteps = [2, 4, 8, 16, 32, 64];
+      data.motor.az_tcool_presets.forEach((val, i) => {
+        const el = document.getElementById(`az-tcool-${msteps[i]}`);
+        if (el) el.value = val;
+      });
+    }
+    if (data.motor.alt_tcool_presets !== undefined) {
+      _hlCache.alt_tcool_presets = data.motor.alt_tcool_presets;
+      const msteps = [2, 4, 8, 16, 32, 64];
+      data.motor.alt_tcool_presets.forEach((val, i) => {
+        const el = document.getElementById(`alt-tcool-${msteps[i]}`);
+        if (el) el.value = val;
+      });
+    }
+    // #26: các field Hardlimit không còn trên UI ⇒ cache lại để Apply/Save không tắt Hard Limit
+    if (data.motor.stall_time !== undefined) {
+      _hlCache.stall_time = data.motor.stall_time;
+      const el = document.getElementById('stall-time');
+      if (el) el.value = data.motor.stall_time;
+    }
+    if (data.motor.escape_rotations !== undefined) {
+      _hlCache.escape_rotations = data.motor.escape_rotations;
+      const el = document.getElementById('escape-rotations');
+      if (el) el.value = data.motor.escape_rotations;
+    }
+    if (data.motor.enable_hardlimit !== undefined) {
+      _hlCache.enable_hardlimit = data.motor.enable_hardlimit;
+      const el = document.getElementById('enable-hardlimit');
+      if (el) el.checked = data.motor.enable_hardlimit;
+    }
+    if (data.motor.show_hardlimit_monitor !== undefined) {
+      _hlCache.show_hardlimit_monitor = data.motor.show_hardlimit_monitor;
+      const cb = document.getElementById('show-hardlimit-monitor');
+      if (cb) {
+        cb.checked = data.motor.show_hardlimit_monitor;
+        toggleMonitorPanel(data.motor.show_hardlimit_monitor);
+      }
+    }
+    if (data.motor.swap_az_alt !== undefined) {
+      const sa = document.getElementById('swap-az-alt');
+      if (sa) sa.checked = data.motor.swap_az_alt;
+    }
+    if (data.serial !== undefined) {
+      const sMap = { baud: 'serial-baud', databits: 'serial-databits', stopbits: 'serial-stopbits', parity: 'serial-parity' };
+      for (const k in sMap) {
+        if (data.serial[k] !== undefined) {
+          const el = document.getElementById(sMap[k]);
+          if (el) el.value = String(data.serial[k]);
+        }
+      }
+      if (data.serial.watchdog !== undefined) {
+        const cw = document.getElementById('enable-comm-watchdog');
+        if (cw) cw.checked = data.serial.watchdog;
+        const cws = document.getElementById('enable-comm-watchdog-serial');
+        if (cws) cws.checked = data.serial.watchdog;
+      }
+      if (data.serial.simplify_telemetry !== undefined) {
+        const st = document.getElementById('simplify-telemetry-while-running');
+        if (st) st.checked = data.serial.simplify_telemetry;
+      }
+      if (data.serial.log !== undefined) {
+        const sl = document.getElementById('toggle-serial-log-btn');
+        if (sl) {
+          sl.checked = data.serial.log;
+          const panel = document.getElementById('serial-log-panel');
+          if (panel) panel.style.display = data.serial.log ? 'block' : 'none';
+        }
+      }
+    }
+    if (data.admin !== undefined && data.admin.reject_second_webclient !== undefined) {
+      const rj = document.getElementById('reject-second-webclient');
+      if (rj) rj.checked = data.admin.reject_second_webclient;
+    }
+    if (data.admin !== undefined && data.admin.mute_all_errors !== undefined) {
+      // #22: Test mode - khoá mọi báo lỗi (đồng bộ công tắc với firmware)
+      muteAllErrors = !!data.admin.mute_all_errors;
+      const mb = document.getElementById('mute-all-errors');
+      if (mb) mb.checked = muteAllErrors;
+    }
+    isUpdatingFromWS = false;
+  }
+
+  // Cập nhật Backlash settings
+  if (data.backlash !== undefined) {
+    if (data.backlash.enable !== undefined) {
+      const cb = document.getElementById('enable-backlash');
+      if (cb) cb.checked = data.backlash.enable;
+    }
+    if (data.backlash.az_steps !== undefined) {
+      const az = document.getElementById('backlash-az');
+      if (az) az.value = data.backlash.az_steps;
+    }
+    if (data.backlash.alt_steps !== undefined) {
+      const alt = document.getElementById('backlash-alt');
+      if (alt) alt.value = data.backlash.alt_steps;
+    }
+  }
+
+  // Cập nhật Alignment Params
+  if (data.align !== undefined) {
+    if (data.align.az !== undefined) {
+      document.getElementById('az-deg').value = data.align.az.d;
+      document.getElementById('az-min').value = data.align.az.m;
+      document.getElementById('az-sec').value = data.align.az.s;
+      document.getElementById('az-dir').checked = data.align.az.dir;
+    }
+    if (data.align.alt !== undefined) {
+      document.getElementById('alt-deg').value = data.align.alt.d;
+      document.getElementById('alt-min').value = data.align.alt.m;
+      document.getElementById('alt-sec').value = data.align.alt.s;
+      document.getElementById('alt-dir').checked = data.align.alt.dir;
+    }
+  }
+  
+  // Cập nhật Relative Settings từ Firmware
+  if (data.relative !== undefined) {
+    isUpdatingFromWS = true; // Bật cờ chặn
+    const toggle = document.getElementById('move-mode-toggle');
+    if (toggle) {
+      toggle.checked = data.relative.mode;
+      // Trigger change event manually to update UI visibility
+      toggle.dispatchEvent(new Event('change'));
+    }
+    if (data.relative.d !== undefined) document.getElementById('rel-d').value = data.relative.d;
+    if (data.relative.m !== undefined) document.getElementById('rel-m').value = data.relative.m;
+    if (data.relative.s !== undefined) document.getElementById('rel-s').value = data.relative.s;
+    updateStepperDisplay('rel-d');
+    updateStepperDisplay('rel-m');
+    updateStepperDisplay('rel-s');
+    isUpdatingFromWS = false; // Tắt cờ chặn
+  }
+
+  // Xử lý tiến độ OTA
+  if (data.ota_progress !== undefined) {
+    const percent = data.ota_progress;
+    if (otaMode === 'ota') {
+      const currentStep = otaPlan?.steps?.[otaCurrentStepIndex];
+      const stepLabel = currentStep ? `Installing ${currentStep.type} (${otaCurrentStepIndex + 1}/${otaPlan.steps.length})...` : 'Installing update...';
+      updateOtaInstallOverlay(percent, stepLabel);
+    }
+  }
+
+  if (data.ota_done) {
+    const doneType = data.ota_type || 'update';
+
+    if (data.reboot_after) {
+      if (otaMode === 'ota') {
+        showOtaInstallSuccessCountdown(3);
+      }
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    } else {
+      if (otaMode === 'ota') {
+        updateOtaInstallOverlay(100, `Completed ${doneType}. Starting next package...`);
+      }
+      setTimeout(() => {
+        startNextPlannedOtaStep();
+      }, 600);
+    }
+  }
+
+  // Xử lý khi OTA thất bại
+  if (data.ota_status === "FAILED") {
+    hideOtaProgressUI();
+    if (otaMode === 'ota') {
+      updateOtaInstallOverlay(0, 'Installing failed. Please retry.');
+      setTimeout(() => {
+        hideOtaInstallOverlay();
+      }, 1500);
+    }
+    otaPlan = null;
+    otaCurrentStepIndex = -1;
+  }
+
+  // Xử lý log từ server
+  if (data.log !== undefined) {
+    appendLog(data.log);
+  }
+
+  // Xử lý trạng thái khóa (PC Serial/Wireless đang điều khiển)
+  if (data.serial_locked !== undefined) {
+    applySystemLock(!!data.serial_locked);
+  }
+
+  // PC chiếm quyền điều khiển từ Web -> khóa điều khiển (vẫn monitor bình thường)
+  if (data.cmd === 'controlTakenBySerial') {
+    applySystemLock(true);
+    appendLog(data.reason || 'PC took over control. Web is locked - monitoring only.');
+  }
+
+  // PC nhả quyền (plugin ngắt / gửi releaseControl) -> Web mở khóa NGAY, không cần refresh
+  if (data.cmd === 'controlReleased') {
+    applySystemLock(false);
+    appendLog(data.reason || 'PC released control. Web control available.');
+  }
+
+  // Xử lý log Serial TX/RX
+  if (data.serial_log !== undefined) {
+    appendSerialLog(data.serial_log.dir, data.serial_log.msg);
+  }
+
+  // Cập nhật danh sách client
+  if (data.clients !== undefined) {
+    const listEl = document.getElementById('clients-list');
+    if (listEl) {
+      if (data.clients.length === 0) {
+        listEl.innerHTML = '<div class="clients-empty">No clients connected.</div>';
+      } else {
+        listEl.innerHTML = ''; // Clear old list
+        data.clients.forEach(client => {
+          const item = document.createElement('div');
+          item.className = 'client-item';
+          item.innerHTML = `<span class="client-name">${client.name || 'Unknown'}</span><span class="client-ip">${client.ip}</span><span class="client-mac">${client.mac}</span>`;
+          listEl.appendChild(item);
+        });
+      }
+    }
+  }
+}
+
+// ===== HEADER NETWORK ROWS (AP / STA) =====
+// Trạng thái để vẽ 3 hàng ở header. Nguồn dữ liệu: firmware ≥ 1.7.0
+//   `link`                = đường vào của CHÍNH phiên này ("AP"/"STA") — gửi 1 lần ở frame đầu khi kết nối
+//   `ap_ready` / `ap_ip`  = AP (hotspot) của thiết bị đã lên chưa + IP của AP
+//   `sta_qual` / `sta_ip` = 0 chưa vào router · 1 có router nhưng không internet · 2 có internet, + IP LAN
+let currentLinkPath = '';
+let currentApReady = null; // null = chưa biết (chưa nhận frame nào)
+let currentApIp = '';
+let currentStaQual = 0;
+let currentStaIp = '';
+let currentRssi = -1000;
+
+function renderNetworkRows() {
+  const apEl = document.getElementById('ap-link-status');
+  const iconEl = document.getElementById('sta-quality-icon');
+  const ipEl = document.getElementById('sta-ip');
+
+  if (apEl) {
+    // Nhãn "AP:" đã là một phần tử riêng trong HTML ⇒ ở đây chỉ đặt PHẦN GIÁ TRỊ, dạng icon SVG:
+    //   i-wifi XANH BLUE NHẠT = AP đã lên (đậm khi CHÍNH PC đi qua hotspot, mờ khi PC đi đường khác)
+    //   · i-wifi-off màu ĐỎ = AP lỗi. Phần IP giữ nguyên màu mờ như trước.
+    if (currentApReady === true) {
+      const ip = currentApIp ? ` ${currentApIp}` : '';
+      const tint = currentLinkPath === 'AP' ? 'wifi-text-ap' : 'wifi-text-ap-dim';
+      apEl.innerHTML = `<span class="${tint}">${svgIco('i-wifi')}</span>` + ip;
+    } else if (currentApReady === false) {
+      apEl.innerHTML = `<span class="wifi-text-danger">${svgIco('i-wifi-off')}</span>`;
+    } else {
+      apEl.textContent = '-';
+    }
+  }
+
+  if (iconEl) {
+    // Icon chất lượng đường STA = SVG vạch sóng (nét/fill lấy currentColor nên tô màu được theo trạng thái):
+    //   chưa vào router → ✕ đỏ · đã vào router → 4 vạch theo RSSI (vạch chưa đạt mờ 22%).
+    //   Màu: xanh = có internet · vàng = có router nhưng không internet. Mức sóng xem ở tooltip.
+    iconEl.classList.remove('wifi-text-success', 'wifi-text-warning', 'wifi-text-danger');
+    if (currentStaQual <= 0) {
+      iconEl.innerHTML = svgIco('i-x');
+      iconEl.classList.add('wifi-text-danger');
+      iconEl.title = 'Not joined any router';
+    } else {
+      iconEl.classList.add(currentStaQual >= 2 ? 'wifi-text-success' : 'wifi-text-warning');
+      if (currentRssi <= -100) {
+        iconEl.innerHTML = svgIco('i-wifi');
+        iconEl.title = 'Joined the router (no signal reading)';
+      } else {
+        iconEl.innerHTML = svgIco(signalIconId());
+        iconEl.title = `Signal: ${currentRssi} dBm`;
+      }
+    }
+  }
+
+  if (ipEl) {
+    ipEl.textContent = currentStaIp || '-';
+  }
+}
+
+// Mức sóng STA theo RSSI (dBm) → id symbol vạch sóng: ≥ −60 = 4 vạch · −70…−60 = 3 · −80…−70 = 2 · < −80 = 1.
+function signalIconId() {
+  if (currentRssi >= -60) return 'i-sig4';
+  if (currentRssi >= -70) return 'i-sig3';
+  if (currentRssi >= -80) return 'i-sig2';
+  return 'i-sig1';
+}
+
+// RSSI của đường STA: chỉ cập nhật mức sóng rồi vẽ lại (KHÔNG ghi đè trạng thái vào-router/có-internet).
+function updateWifiIcon(rssi) {
+  currentRssi = Number(rssi);
+  if (!Number.isFinite(currentRssi)) currentRssi = -1000;
+  renderNetworkRows();
+}
+
+// Mất kết nối WebSocket: không biết gì về thiết bị nữa → về trạng thái "chưa biết".
+function markNetworkOffline() {
+  currentLinkPath = '';
+  currentApReady = null;
+  currentApIp = '';
+  currentStaQual = 0;
+  currentStaIp = '';
+  currentRssi = -1000;
+  renderNetworkRows();
+}
+
+function toggleStepsDisplay(show) {
+  const displays = document.querySelectorAll('.steps-display');
+  displays.forEach(el => el.style.display = show ? 'block' : 'none');
+}
+
+function toggleMonitorPanel(show) {
+  const panel = document.querySelector('.monitor-panel');
+  if (panel) panel.style.display = show ? 'block' : 'none';
+}
+
+// ===== MOTION CONTROL LOCKS =====
+function updateMotionControls() {
+  const manualSelectors = ['#btn-up', '#btn-down', '#btn-left', '#btn-right'];
+  const automaticSelectors = [
+    '#align-btn', '#align-az-btn', '#align-alt-btn', '#return-home-btn',
+    '#align-alt-btn-mobile',
+    '#save-aligned-btn', '#fallback-aligned-btn',
+    '#calib-az-btn', '#calib-alt-btn', '#calib-all-btn',
+    'button[onclick*="startTuning"]', 'button[onclick*="startTuningTcool"]'
+  ];
+  const globallyLocked = systemLocked || hasSystemError;
+  const disableManual = globallyLocked || motionMode === 'automatic';
+  const disableAutomatic = globallyLocked || motionMode !== 'idle';
+
+  const setDisabled = (selector, disabled) => {
+    document.querySelectorAll(selector).forEach((button) => {
+      button.disabled = disabled;
+      button.classList.toggle('ui-locked', disabled);
+    });
+  };
+
+  manualSelectors.forEach((selector) => setDisabled(selector, disableManual));
+  automaticSelectors.forEach((selector) => setDisabled(selector, disableAutomatic));
+
+  // #29: trục đang GIẢM TỐC ⇒ khoá nút NGƯỢC chiều (nhấn CÙNG chiều vẫn cho phép) — chống đảo chiều
+  // khi trục còn quán tính (dễ mất bước). Nút mũi tên: az -1 = LEFT, +1 = RIGHT; alt -1 = DOWN, +1 = UP.
+  if (rampDirAz > 0) setDisabled('#btn-left', true);
+  else if (rampDirAz < 0) setDisabled('#btn-right', true);
+  if (rampDirAlt > 0) setDisabled('#btn-down', true);
+  else if (rampDirAlt < 0) setDisabled('#btn-up', true);
+}
+
+// ===== TAB SWITCHING =====
+function switchTab(tabName) {
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  const content = document.getElementById(tabName + '-tab');
+  if (!btn || !content) return;
+
+  // Hide all tabs
+  document.querySelectorAll('.tab-content').forEach(tab => {
+    tab.classList.remove('active');
+  });
+
+  // Remove active from all buttons
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('active');
+  });
+
+  // Show selected tab and mark button as active
+  content.classList.add('active');
+  btn.classList.add('active');
+
+  // Reset the page scroll to the top of the newly selected tab
+  window.scrollTo(0, 0);
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    switchTab(btn.dataset.tab);
+  });
+});
+
+// ===== SWIPE LEFT/RIGHT TO SWITCH TAB (Mobile) =====
+let swipeStartX = null;
+let swipeStartY = null;
+let swipeHorizontal = false;
+
+// Các phần tử tương tác: bỏ qua nếu cú chạm bắt đầu trên chúng
+document.addEventListener('touchstart', (e) => {
+  // Chỉ xử lý khi 1 ngón tay
+  if (e.touches.length > 1) { swipeStartX = null; return; }
+  // Bỏ qua khi chạm bắt đầu trên các control (nút, input, ô cuộn, modal...)
+  const isInteractive = e.target.closest('.tab-btn, .arrow-btn, .speed-btn, .step-btn, .btn, .switch, .toggle-icon, input, textarea, select, label, .modal, .history-list, .wifi-list, .modal-body');
+  if (isInteractive) { swipeStartX = null; return; }
+  swipeStartX = e.touches[0].clientX;
+  swipeStartY = e.touches[0].clientY;
+  swipeHorizontal = false;
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  if (swipeStartX === null) return;
+  const dx = e.touches[0].clientX - swipeStartX;
+  const dy = e.touches[0].clientY - swipeStartY;
+  // Đánh dấu là vuốt ngang khi độ dịch ngang vượt trội so với dọc
+  if (Math.abs(dx) > Math.abs(dy) * 1.2 && Math.abs(dx) > 12) {
+    swipeHorizontal = true;
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', (e) => {
+  if (swipeStartX === null) return;
+  const dx = e.changedTouches[0].clientX - swipeStartX;
+  const dy = e.changedTouches[0].clientY - swipeStartY;
+  swipeStartX = null;
+  swipeStartY = null;
+
+  if (!swipeHorizontal) return;
+  if (Math.abs(dx) < 60) return;                 // Vuốt quá ngắn -> bỏ qua
+  if (Math.abs(dy) > Math.abs(dx) * 1.2) return; // Thiên về dọc -> bỏ qua
+
+  const activeTab = document.querySelector('.tab-content.active');
+  if (!activeTab) return;
+
+  if (dx < 0) {
+    // Vuốt trái -> sang tab kế tiếp (CONFIG)
+    if (activeTab.id === 'control-tab') switchTab('config');
+  } else {
+    // Vuốt phải -> về tab trước (CONTROL)
+    if (activeTab.id === 'config-tab') switchTab('control');
+  }
+}, { passive: true });
+
+// ===== SPEED LEVEL SELECTION =====
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Remove active from all
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    // Add active to clicked
+    btn.classList.add('active');
+    // Store level
+    localStorage.setItem('speedLevel', btn.dataset.level);
+    sendCommand('speedLevel', { level: parseInt(btn.dataset.level) });
+  });
+});
+
+
+// ===== HELPER: COLLECT CONFIG =====
+function collectConfig() {
+  return {
+    limits: {
+      enable_softlimit: document.getElementById('enable-softlimit') ? document.getElementById('enable-softlimit').checked : true,
+      az_min: parseFloat(document.getElementById('limit-az-min').value),
+      az_max: parseFloat(document.getElementById('limit-az-max').value),
+      alt_min: parseFloat(document.getElementById('limit-alt-min').value),
+      alt_max: parseFloat(document.getElementById('limit-alt-max').value)
+    },
+    motor: {
+      az_run_ma: parseInt(document.getElementById('az-current-run').value),
+      az_hold_ma: parseInt(document.getElementById('az-current-hold').value),
+      az_boost_pct: Math.min(150, Math.max(100, parseInt(document.getElementById('az-boost-pct').value) || 120)),
+      az_soft_cs_pct: Math.min(100, Math.max(60, document.getElementById('az-soft-cs-pct') ? (parseInt(document.getElementById('az-soft-cs-pct').value) || 70) : 70)),
+      az_microsteps: parseInt(document.getElementById('az-microsteps').value),
+      az_accel: parseInt(document.getElementById('az-accel').value),
+      az_decel: parseInt(document.getElementById('az-decel').value),
+      az_spd: parseFloat(document.getElementById('az-spd').value),
+      az_reverse: document.getElementById('az-reverse').checked,
+      alt_run_ma: parseInt(document.getElementById('alt-current-run').value),
+      alt_hold_ma: parseInt(document.getElementById('alt-current-hold').value),
+      alt_boost_pct: Math.min(150, Math.max(100, parseInt(document.getElementById('alt-boost-pct').value) || 120)),
+      alt_soft_cs_pct: Math.min(100, Math.max(60, document.getElementById('alt-soft-cs-pct') ? (parseInt(document.getElementById('alt-soft-cs-pct').value) || 70) : 70)),
+      alt_microsteps: parseInt(document.getElementById('alt-microsteps').value),
+      max_speed: parseFloat(document.getElementById('max-speed').value) || 200.0,
+      alt_accel: parseInt(document.getElementById('alt-accel').value),
+      alt_decel: parseInt(document.getElementById('alt-decel').value),
+      alt_spd: parseFloat(document.getElementById('alt-spd').value),
+      alt_reverse: document.getElementById('alt-reverse').checked,
+      az_spread_cycle: document.getElementById('az-mode-spreadcycle').checked,
+      alt_spread_cycle: document.getElementById('alt-mode-spreadcycle').checked,
+      show_steps: document.getElementById('show-steps').checked,
+      beep_level: (function () { const r = document.querySelector('input[name="beep-level"]:checked'); return r ? parseInt(r.value, 10) : 3; })(),   // #28: 4 mức âm lượng còi (0 tắt / 1 nhỏ / 2 vừa / 3 to)
+      // #26: thẻ Hardlimit đã ẩn khỏi UI ⇒ ưu tiên DOM nếu có (mở lại comment), không có thì lấy cache
+      az_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`az-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.az_sg_thrs ? (_hlCache.az_sg_thrs[i] || 110) : 110); }),
+      alt_sg_thrs: Array.from({length: 5}, (_, i) => { const el = document.getElementById(`alt-sg-${i+1}`); return el ? (parseInt(el.value) || 110) : (_hlCache.alt_sg_thrs ? (_hlCache.alt_sg_thrs[i] || 110) : 110); }),
+      az_tcool_presets: [2, 4, 8, 16, 32, 64].map((ms, idx) => { const el = document.getElementById(`az-tcool-${ms}`); return el ? (parseInt(el.value) || 0) : (_hlCache.az_tcool_presets ? (_hlCache.az_tcool_presets[idx] || 0) : 0); }),
+      alt_tcool_presets: [2, 4, 8, 16, 32, 64].map((ms, idx) => { const el = document.getElementById(`alt-tcool-${ms}`); return el ? (parseInt(el.value) || 0) : (_hlCache.alt_tcool_presets ? (_hlCache.alt_tcool_presets[idx] || 0) : 0); }),
+      stall_time: document.getElementById('stall-time') ? parseInt(document.getElementById('stall-time').value) : (_hlCache.stall_time !== null ? _hlCache.stall_time : 255),
+      escape_rotations: document.getElementById('escape-rotations') ? parseInt(document.getElementById('escape-rotations').value) : (_hlCache.escape_rotations !== null ? _hlCache.escape_rotations : 3),
+      enable_hardlimit: document.getElementById('enable-hardlimit') ? document.getElementById('enable-hardlimit').checked : (_hlCache.enable_hardlimit !== null ? _hlCache.enable_hardlimit : false),
+      show_hardlimit_monitor: document.getElementById('show-hardlimit-monitor') ? document.getElementById('show-hardlimit-monitor').checked : (_hlCache.show_hardlimit_monitor !== null ? _hlCache.show_hardlimit_monitor : false),
+      swap_az_alt: document.getElementById('swap-az-alt') ? document.getElementById('swap-az-alt').checked : true
+    },
+    serial: {
+      // UI baud/databits/stopbits/parity đã bị ẩn (comment trong index.html) -> giữ giá trị mặc định/firmware
+      baud: (document.getElementById('serial-baud') && parseInt(document.getElementById('serial-baud').value)) || 115200,
+      databits: (document.getElementById('serial-databits') && parseInt(document.getElementById('serial-databits').value)) || 8,
+      stopbits: (document.getElementById('serial-stopbits') && parseFloat(document.getElementById('serial-stopbits').value)) || 1,
+      parity: (document.getElementById('serial-parity') && parseInt(document.getElementById('serial-parity').value)) || 0,
+      watchdog: document.getElementById('enable-comm-watchdog') ? document.getElementById('enable-comm-watchdog').checked : true,
+      simplify_telemetry: document.getElementById('simplify-telemetry-while-running') ? document.getElementById('simplify-telemetry-while-running').checked : true,
+      log: document.getElementById('toggle-serial-log-btn') ? document.getElementById('toggle-serial-log-btn').checked : false
+    },
+    backlash: {
+      enable: document.getElementById('enable-backlash').checked,
+      az_steps: parseInt(document.getElementById('backlash-az').value),
+      alt_steps: parseInt(document.getElementById('backlash-alt').value)
+    },
+    relative: {
+      mode: document.getElementById('move-mode-toggle').checked,
+      d: parseInt(document.getElementById('rel-d').value) || 0,
+      m: parseInt(document.getElementById('rel-m').value) || 0,
+      s: parseInt(document.getElementById('rel-s').value) || 0
+    },
+    wifi: {
+      ssid: (document.getElementById('wifi-ssid') && document.getElementById('wifi-ssid').value) || '',
+      pass: (document.getElementById('wifi-pass') && document.getElementById('wifi-pass').value) || ''
+    },
+    wifi_ap: {
+      ssid: document.getElementById('ap-ssid').value,
+      pass: document.getElementById('ap-pass').value,
+      ip: document.getElementById('ap-ip').value,
+      subnet: document.getElementById('ap-subnet').value,
+    },
+    // #23: tên mDNS (firmware tự lọc ký tự hợp lệ; đổi tên cần SAVE ALL & REBOOT)
+    mdns_name: document.getElementById('mdns-name') ? document.getElementById('mdns-name').value.replace(/[^A-Za-z0-9-]/g, '').slice(0, 31) : '',
+    align_mode: {
+      simultaneous: document.getElementById('align-all-mode-simultaneous') ? document.getElementById('align-all-mode-simultaneous').checked : true
+    },
+    // Cờ admin cần SAVE & REBOOT: chỉ gửi kèm payload khi bấm SAVE (Apply bỏ qua cờ này).
+    admin: {
+      reject_second_webclient: document.getElementById('reject-second-webclient') ? document.getElementById('reject-second-webclient').checked : false,
+      mute_all_errors: document.getElementById('mute-all-errors') ? document.getElementById('mute-all-errors').checked : false   // #22: Test mode - khoá mọi báo lỗi
+    }
+  };
+}
+
+// ===== CONFIG APPLY (no reboot, no FRAM save) =====
+function applyConfigOnly() {
+  if (!validateSoftLimitsBeforeSave()) return;
+  const config = collectConfig();
+  // KHÔNG hiện toast thành công lạc quan nữa: chờ firmware xác nhận qua WS (status configApplied).
+  // Nếu không nhận phản hồi trong 5s -> cảnh báo (thường do web đang bị lock bởi serial, hoặc payload bị lỗi parse).
+  window._applyAckPending = true;
+  showMessage('⏳ Applying settings... waiting for device confirmation...', '#save-message', 8000);
+  const sent = sendCommand('applyConfig', config);
+  if (!sent) {
+    // Lệnh CHƯA được gửi: web bị khóa bởi PC/Serial hoặc WebSocket mất kết nối -> báo rõ ngay,
+    // tránh chờ 5s rồi hiện "No confirmation" mơ hồ.
+    window._applyAckPending = false;
+    showMessage(systemLocked
+      ? '⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
+      : '⚠ WebSocket not connected. Cannot apply settings.',
+      '#save-message', 8000);
+    return;
+  }
+  toggleStepsDisplay(config.motor.show_steps);
+  toggleMonitorPanel(config.motor.show_hardlimit_monitor);
+  setTimeout(() => {
+    if (window._applyAckPending) {
+      window._applyAckPending = false;
+      showMessage('⚠ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.', '#save-message', 8000);
+    }
+  }, 5000);
+}
+
+const applyBtn = document.getElementById('apply-btn');
+if (applyBtn) applyBtn.addEventListener('click', applyConfigOnly);
+
+const rebootBtn = document.getElementById('reboot-btn');
+if (rebootBtn) rebootBtn.addEventListener('click', () => {
+  showModal('Reboot Device', 'Reboot ESP32 now? Any unapplied or unsaved changes will be discarded.', [
+    { text: 'Reboot', class: 'btn-danger', callback: () => { sendCommand('reboot', {}); } },
+    { text: 'Cancel', class: 'btn-secondary' }
+  ]);
+});
+
+// ===== CONFIG SAVE & REBOOT =====
+// Luồng chuẩn (theo yêu cầu):
+//   1) Gửi saveConfig kèm no_reboot=true -> firmware chỉ ghi FRAM (gồm cả wifi) và trả
+//      configSaved (origin=webSave), KHÔNG tự reboot.
+//   2) Frontend nhận configSaved có origin=webSave => biết chắc backend ĐÃ lưu thành công.
+//   3) Frontend mới gửi lệnh reboot.
+//   4) Reload ngay (không đếm ngược). Firmware restart sau ~500ms nên reload kịp
+//      trước khi server tắt; trang mới tự kết nối lại khi device online.
+const saveAllBtn = document.getElementById('save-all-btn');
+if(saveAllBtn) saveAllBtn.addEventListener('click', () => {
+  if (!validateSoftLimitsBeforeSave()) {
+    return;
+  }
+  const config = collectConfig();
+  config.no_reboot = true; // chỉ lưu, đừng reboot; frontend tự reboot sau khi xác nhận đã lưu
+  const msgEl = document.querySelector('#save-message');
+  if(msgEl) {
+    msgEl.style.display = 'block';
+    msgEl.textContent = '⏳ Saving to flash...';
+  }
+  window._saveFlow = { active: true, confirmed: false };
+  const sent = sendCommand('saveConfig', config);
+  if (!sent) {
+    // Lệnh CHƯA được gửi: báo rõ lý do ngay (locked bởi PC/Serial hoặc WS offline).
+    window._saveFlow = null;
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.textContent = systemLocked
+        ? '⊠ Web is LOCKED by PC (Serial Control is Active). Disconnect the plugin or refresh to gain control.'
+        : '⚠ WebSocket not connected. Cannot save settings.';
+    }
+    return;
+  }
+  toggleStepsDisplay(config.motor.show_steps);
+  toggleMonitorPanel(config.motor.show_hardlimit_monitor);
+  
+  setTimeout(() => {
+    if (window._saveFlow && window._saveFlow.active && !window._saveFlow.confirmed) {
+      window._saveFlow = null;
+      if (msgEl) {
+        msgEl.style.display = 'block';
+        msgEl.textContent = '⚠ No confirmation from device. Check System Log: device may be locked by PC (serial), or the config payload failed to parse.';
+      }
+    }
+  }, 7000);
+});
+
+bindSoftLimitInputGuards();
+
+// ===== CALIBRATION CHECK HELPER =====
+function performCalibrationCheck(callback) {
+  const hlCheckbox = document.getElementById('enable-hardlimit');
+  if (hlCheckbox && !hlCheckbox.checked) {
+    showModal(
+      'Enable Hard Limit?',
+      'You must enable hardlimit first. Check it now & reboot?',
+      [
+        { 
+          text: 'OK', 
+          class: 'btn-primary', 
+          callback: () => {
+            hlCheckbox.checked = true;
+            const config = collectConfig();
+            sendCommand('saveConfig', config);
+            setRebootingStatus();
+            
+            // Hiển thị đếm ngược Reboot giống nút Save All
+            let countdown = 5;
+            const msgEl = document.querySelector('#save-message');
+            if(msgEl) {
+              msgEl.style.display = 'block';
+              msgEl.textContent = `Hardlimit Enabled. Rebooting in ${countdown}s...`;
+              
+              const interval = setInterval(() => {
+                countdown--;
+                if(countdown <= 0) {
+                  clearInterval(interval);
+                  location.reload();
+                } else {
+                  msgEl.textContent = `Hardlimit Enabled. Rebooting in ${countdown}s...`;
+                }
+              }, 1000);
+            }
+            // Không gọi callback() nữa vì hệ thống sẽ reboot
+          }
+        },
+        { text: 'Cancel' }
+      ]
+    );
+  } else {
+    callback();
+  }
+}
+
+// ===== LIVE UI UPDATES =====
+const showStepsCheckbox = document.getElementById('show-steps');
+if(showStepsCheckbox) {
+  showStepsCheckbox.addEventListener('change', (e) => {
+    toggleStepsDisplay(e.target.checked);
+  });
+}
+
+function getRelativeDistance() {
+  const d = parseInt(document.getElementById('rel-d').value) || 0;
+  const m = parseInt(document.getElementById('rel-m').value) || 0;
+  const s = parseInt(document.getElementById('rel-s').value) || 0;
+  
+  // Calculate total degrees
+  return d + (m / 60.0) + (s / 3600.0);
+}
+
+// ===== MOVEMENT BUTTONS =====
+const moveButtons = {
+  'btn-up': { axis: 'alt', dir: 1 },
+  'btn-down': { axis: 'alt', dir: -1 },
+  'btn-left': { axis: 'az', dir: -1 },
+  'btn-right': { axis: 'az', dir: 1 },
+};
+
+Object.keys(moveButtons).forEach(btnId => {
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  const { axis, dir } = moveButtons[btnId];
+  
+  let isPressed = false;
+
+  btn.addEventListener('mousedown', () => {
+    if (isRelativeMode) return; // Ignore hold in relative mode
+    isPressed = true;
+    const active = document.querySelector('.speed-btn.active');
+    const speed = active ? active.dataset.level : '3';
+    sendCommand('move', { axis, direction: dir, speed });
+  });
+  
+  btn.addEventListener('mouseup', () => {
+    if (isRelativeMode) return;
+    if (isPressed) {
+      isPressed = false;
+      // Nhả jog = giảm tốc mượt theo trục (stopMove), KHÔNG dùng 'stop' (dừng đột ngột).
+      sendCommand('stopMove', { axis });
+    }
+  });
+  
+  // Dừng động cơ khi trượt chuột ra khỏi nút (coi như nhả chuột)
+  btn.addEventListener('mouseleave', () => {
+    if (isRelativeMode) return;
+    if (isPressed) {
+      isPressed = false;
+      sendCommand('stopMove', { axis });
+    }
+  });
+  
+  btn.addEventListener('touchstart', (e) => {
+    if (e.cancelable) e.preventDefault(); 
+    if (isRelativeMode) return; // Ignore hold in relative mode
+    const active = document.querySelector('.speed-btn.active');
+    const speed = active ? active.dataset.level : '3';
+    sendCommand('move', { axis, direction: dir, speed });
+  });
+  
+  btn.addEventListener('touchend', (e) => {
+    if (e.cancelable) e.preventDefault(); // Ngăn chặn hành động mặc định
+    if (isRelativeMode) return;
+    sendCommand('stopMove', { axis });
+  });
+
+  // Handle Relative Move (Click)
+  btn.addEventListener('click', () => {
+    if (!isRelativeMode) return;
+    const angle = getRelativeDistance();
+    const active = document.querySelector('.speed-btn.active');
+    const speed = active ? active.dataset.level : '3';
+    sendCommand('moveRelative', { axis, direction: dir, angle: angle, speed: speed });
+  });
+});
+
+// Stop button
+const btnStop = document.getElementById('btn-stop');
+if(btnStop) btnStop.addEventListener('click', () => { sendCommand('stop', {}); });
+
+// Force Stop button
+const btnForceStop = document.getElementById('btn-force-stop');
+if(btnForceStop) btnForceStop.addEventListener('click', () => { sendCommand('forceStop', {}); });
+
+// ===== HOME BUTTONS =====
+const returnHomeBtn = document.getElementById('return-home-btn');
+if(returnHomeBtn) returnHomeBtn.addEventListener('click', () => {
+  // Kiểm tra trạng thái lỗi trước khi gửi lệnh
+  if (hasSystemError) {
+    showModal('Action Blocked', 'System is in an error state. Please reset the error first.', [{ text: 'OK', class: 'btn-danger' }]);
+    return;
+  }
+  // Kiểm tra nếu chưa Set Home thì báo lỗi và không gửi lệnh
+  if (!isSystemHomed) {
+    showModal('Action Blocked', 'You have not set a home position yet. Please use "SET HOME" first.', [{ text: 'OK', class: 'btn-warning' }]);
+    return;
+  }
+  sendCommand('returnHome', {});
+  showMessage('Returning to home...', '#save-message', 3000);
+});
+
+const resetHomeBtn = document.getElementById('reset-home-btn');
+if(resetHomeBtn) resetHomeBtn.addEventListener('click', () => {
+  showModal(
+    'Confirm Reset Home', 
+    'Are you sure you want to reset the home position? The equipment must be manually repositioned afterwards.', 
+    [
+      { text: 'Yes, Reset Home', class: 'btn-danger', callback: () => {
+        sendCommand('resetHome', {});
+        showMessage('Home reset. Please reposition equipment.', '#save-message', 3000);
+      }},
+      { text: 'Cancel', class: 'btn-secondary' }
+    ]);
+});
+
+// ===== HELPER: GET ERROR VALUE =====
+function getErrorValue(prefix, dirId) {
+  const d = Math.abs(parseInt(document.getElementById(prefix + '-deg').value) || 0);
+  const m = Math.abs(parseInt(document.getElementById(prefix + '-min').value) || 0);
+  const s = Math.abs(parseFloat(document.getElementById(prefix + '-sec').value) || 0);
+  
+  // Tính tổng arcseconds: (Độ * 3600) + (Phút * 60) + Giây (bao gồm phần thập phân)
+  let totalArcsec = (Math.abs(d) * 3600) + (Math.abs(m) * 60) + Math.abs(s);
+  
+  // Xử lý hướng (Toggle Switch)
+  // Checked = Right/Up (Dương)
+  // Unchecked = Left/Down (Âm)
+  const isPositive = document.getElementById(dirId).checked;
+  if (!isPositive) {
+    totalArcsec = -totalArcsec;
+  }
+  
+  return totalArcsec;
+}
+
+// ===== SAVE ALIGNMENT SETTINGS TO FRAM =====
+function saveAlignSettings() {
+  if (isUpdatingFromWS) return; // Không lưu nếu đang được render từ ESP32
+  const config = {
+    align: {
+      az: {
+        d: parseInt(document.getElementById('az-deg').value) || 0,
+        m: parseInt(document.getElementById('az-min').value) || 0,
+        s: parseFloat(document.getElementById('az-sec').value) || 0,
+        dir: document.getElementById('az-dir').checked
+      },
+      alt: {
+        d: parseInt(document.getElementById('alt-deg').value) || 0,
+        m: parseInt(document.getElementById('alt-min').value) || 0,
+        s: parseFloat(document.getElementById('alt-sec').value) || 0,
+        dir: document.getElementById('alt-dir').checked
+      }
+    }
+  };
+  sendCommand('saveConfig', config);
+}
+
+['az-deg', 'az-min', 'az-sec', 'az-dir', 'alt-deg', 'alt-min', 'alt-sec', 'alt-dir'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', saveAlignSettings); // Lắng nghe để lưu tự động
+});
+
+
+// ===== ALIGNMENT =====
+// Align All Button
+const alignBtn = document.getElementById('align-btn');
+if(alignBtn) alignBtn.addEventListener('click', () => {
+  // Kiểm tra trạng thái lỗi
+  if (hasSystemError) {
+    showModal('Action Blocked', 'System is in an error state. Please reset the error first.', [{ text: 'OK', class: 'btn-danger' }]);
+    return;
+  }
+  if (!isSystemHomed) { 
+    showModal('Action Blocked', 'You have not set a home position yet. Please use "SET HOME" first.', [{ text: 'OK', class: 'btn-warning' }]);
+    return; 
+  }
+  const azError = getErrorValue('az', 'az-dir');
+  const altError = getErrorValue('alt', 'alt-dir');
+  // ALIGN ALL mode (radio trong Admin Config): true = chạy 2 trục cùng lúc, false = lần lượt
+  const simRadio = document.getElementById('align-all-mode-simultaneous');
+  const alignAllSimultaneous = simRadio ? simRadio.checked : false;
+  
+  // Tự động lưu cấu hình khi nhấn Align All
+  const config = {
+    align: {
+      az: {
+        d: parseInt(document.getElementById('az-deg').value) || 0,
+        m: parseInt(document.getElementById('az-min').value) || 0,
+        s: parseFloat(document.getElementById('az-sec').value) || 0,
+        dir: document.getElementById('az-dir').checked
+      },
+      alt: {
+        d: parseInt(document.getElementById('alt-deg').value) || 0,
+        m: parseInt(document.getElementById('alt-min').value) || 0,
+        s: parseFloat(document.getElementById('alt-sec').value) || 0,
+        dir: document.getElementById('alt-dir').checked
+      }
+    }
+  };
+  sendCommand('saveConfig', config);
+
+  sendCommand('align', {
+    ra_error: azError,  // Mapping Az UI -> ra_error backend
+    dec_error: altError, // Mapping Alt UI -> dec_error backend
+    simultaneous: alignAllSimultaneous // ALIGN ALL mode: cùng lúc / lần lượt
+  });
+});
+
+// ===== SAVE ALIGNED POSITION (#27) =====
+// Chỉ lưu khi hệ thống đang READY; chưa READY thì báo modal "vị trí chưa được cố định".
+const saveAlignedBtn = document.getElementById('save-aligned-btn');
+if (saveAlignedBtn) {
+  saveAlignedBtn.addEventListener('click', () => {
+    if (currentSystemStatus !== 'READY') {
+      showModal(
+        'Position Not Fixed',
+        'The RPA is not <strong>READY</strong> yet (status: ' + (currentSystemStatus || 'unknown') + ').<br><br>' +
+        'The aligned position can only be saved when both axes have stopped - wait for the READY status, then press <strong>SAVE ALIGNED POSITION</strong>.',
+        [{ text: 'OK', class: 'btn-warning' }]
+      );
+      return;
+    }
+    sendCommand('saveAlignedPosition', {});
+  });
+}
+
+// ===== FALLBACK SAVED POSITION (#27) =====
+// Quay 2 trục về vị trí PA đã lưu trước đó (cần xác nhận vì nó sẽ di chuyển mount).
+const fallbackAlignedBtn = document.getElementById('fallback-aligned-btn');
+if (fallbackAlignedBtn) {
+  fallbackAlignedBtn.addEventListener('click', () => {
+    showModal(
+      'Fallback Saved Position',
+      'Move both axes back to the <strong>last saved aligned position</strong>?<br><br>Make sure nothing can hit the mount while it moves.',
+      [
+        {
+          text: 'Yes, Fallback',
+          class: 'btn-warning',
+          callback: () => { sendCommand('fallbackAlignedPosition', {}); }
+        },
+        { text: 'Cancel', class: 'btn-secondary' }
+      ]
+    );
+  });
+}
+
+// Align Az Only Button
+const alignAzBtn = document.getElementById('align-az-btn');
+if(alignAzBtn) alignAzBtn.addEventListener('click', () => {
+  if (!isSystemHomed) { 
+    showModal('Action Blocked', 'You have not set a home position yet.', [{ text: 'OK', class: 'btn-warning' }]);
+    return; 
+  }
+  // Tự động lưu cấu hình AZ
+  const config = {
+    align: {
+      az: {
+        d: parseInt(document.getElementById('az-deg').value) || 0,
+        m: parseInt(document.getElementById('az-min').value) || 0,
+        s: parseFloat(document.getElementById('az-sec').value) || 0,
+        dir: document.getElementById('az-dir').checked
+      }
+    }
+  };
+  sendCommand('saveConfig', config);
+  const azError = getErrorValue('az', 'az-dir');
+  sendCommand('align', { ra_error: azError, dec_error: 0 });
+});
+
+// Align Alt Only Button (2 phần tử: trong nhóm Alt trên desktop, hàng riêng trên mobile - #27)
+function runAlignAltOnly() {
+  if (!isSystemHomed) {
+    showModal('Action Blocked', 'You have not set a home position yet.', [{ text: 'OK', class: 'btn-warning' }]);
+    return;
+  }
+  // Tự động lưu cấu hình ALT
+  const config = {
+    align: {
+      alt: {
+        d: parseInt(document.getElementById('alt-deg').value) || 0,
+        m: parseInt(document.getElementById('alt-min').value) || 0,
+        s: parseFloat(document.getElementById('alt-sec').value) || 0,
+        dir: document.getElementById('alt-dir').checked
+      }
+    }
+  };
+  sendCommand('saveConfig', config);
+  const altError = getErrorValue('alt', 'alt-dir');
+  sendCommand('align', { ra_error: 0, dec_error: altError });
+}
+['align-alt-btn', 'align-alt-btn-mobile'].forEach((id) => {
+  const btn = document.getElementById(id);
+  if (btn) btn.addEventListener('click', runAlignAltOnly);
+});
+
+// ===== WIFI SCAN & CONNECT =====
+const scanWifiBtn = document.getElementById('scan-wifi-btn');
+
+if (scanWifiBtn) {
+  scanWifiBtn.addEventListener('click', () => {
+    showModal('WiFi Scan', '<div class="wifi-scanning">Scanning networks...<br>Please wait...</div>', [{ text: 'Cancel' }]);
+    sendCommand('scanWifi', {});
+  });
+}
+
+// ===== WIFI PASSWORD: TẢI THEO YÊU CẦU (nút con mắt) =====
+// Vì sao không điền sẵn: password KHÔNG nằm trong snapshot/broadcast (frame đó gửi cho MỌI client
+// và được push lại mỗi lần cấu hình đổi). Muốn xem thì bấm con mắt → gửi `getConfig` → firmware trả
+// riêng cho client này → mới hiển thị. Đối xứng với `STAp:?` / `APpa:?` của đường Serial.
+// Khi lưu: để trống ô = giữ nguyên password hiện tại (firmware bỏ qua field rỗng).
+const _passFetchPending = { sta: false, ap: false };
+// Ô mật khẩu để TRỐNG = giữ nguyên pass hiện tại ⇒ hiển thị 8 dấu * (placeholder) thay cho dòng chữ dài.
+const PASS_BLANK_PLACEHOLDER = '********';
+// Icon sprite dùng chung cho các chỗ JS vẽ icon (trạng thái AP/STA, mắt password, homing...).
+function svgIco(id) { return '<svg class="ico" aria-hidden="true"><use href="#' + id + '"/></svg>'; }
+
+// Icon con mắt: giống con mắt native của ô mật khẩu admin — ĐANG ẨN = mắt trơn, ĐANG HIỆN = mắt gạch chéo.
+// (class `is-off` = password đang ẩn, chỉ dùng cho style mờ hơn.)
+function setEyeIcon(btn, visible) {
+  if (!btn) return;
+  btn.innerHTML = svgIco(visible ? 'i-eye-off' : 'i-eye');
+  btn.classList.toggle('is-off', !visible);
+}
+
+function requestPassword(which) {
+  const input = document.getElementById(which === 'sta' ? 'wifi-pass' : 'ap-pass');
+  const btn = document.getElementById(which === 'sta' ? 'wifi-pass-eye' : 'ap-pass-eye');
+  if (!input) return;
+
+  _passFetchPending[which] = true;
+  if (btn) {
+    btn.innerHTML = svgIco('i-spin');
+    btn.classList.remove('is-off');
+  }
+  input.placeholder = 'Requesting from device...';
+  // keys: "pass" = mật khẩu WiFi (STA); "wifi_ap" = ssid + mật khẩu AP
+  sendCommand('getConfig', { keys: [which === 'sta' ? 'pass' : 'wifi_ap'] });
+}
+
+function applyPasswordFetch(data) {
+  const reveal = (which, value) => {
+    const input = document.getElementById(which === 'sta' ? 'wifi-pass' : 'ap-pass');
+    const btn = document.getElementById(which === 'sta' ? 'wifi-pass-eye' : 'ap-pass-eye');
+    if (!input) return;
+    input.value = value || '';
+    input.placeholder = PASS_BLANK_PLACEHOLDER;
+    input.type = 'text';                 // hiện ra sau khi nhận được
+    setEyeIcon(btn, true);
+  };
+
+  if (_passFetchPending.sta && data.pass !== undefined) {
+    _passFetchPending.sta = false;
+    reveal('sta', data.pass);
+  }
+  if (_passFetchPending.ap && data.wifi_ap && data.wifi_ap.pass !== undefined) {
+    _passFetchPending.ap = false;
+    reveal('ap', data.wifi_ap.pass);
+  }
+}
+
+// Nút con mắt: đã có giá trị ⇒ chỉ ẩn/hiện; chưa có ⇒ hỏi thiết bị rồi mới hiện.
+function bindPasswordEye(btnId, inputId, which) {
+  const btn = document.getElementById(btnId);
+  const input = document.getElementById(inputId);
+  if (!btn || !input) return;
+
+  btn.addEventListener('click', () => {
+    if (input.type === 'text') {          // đang hiện ⇒ ẩn đi
+      input.type = 'password';
+      setEyeIcon(btn, false);
+      return;
+    }
+    if (input.value) {                    // đã tải/đã nhập rồi ⇒ hiện luôn
+      input.type = 'text';
+      setEyeIcon(btn, true);
+      return;
+    }
+    requestPassword(which);               // chưa biết ⇒ tải theo yêu cầu
+  });
+}
+
+bindPasswordEye('wifi-pass-eye', 'wifi-pass', 'sta');
+bindPasswordEye('ap-pass-eye', 'ap-pass', 'ap');
+
+// ===== ADMIN CONFIG =====
+const adminBtn = document.getElementById('admin-config-btn');
+
+if (adminBtn) {
+  adminBtn.addEventListener('click', () => {
+    const adminBody = `
+      <div id="admin-login-error" style="color: red; margin-bottom: 10px; display: none;"></div>
+      <div class="config-item">
+        <label>Enter Password:</label>
+        <input type="password" id="admin-pass-input-modal" placeholder="Password" class="input-field">
+      </div>`;
+
+    const checkAdminPass = () => {
+      const passInput = document.getElementById('admin-pass-input-modal');
+      if (passInput) {
+        sendCommand('loginAdmin', { pass: passInput.value });
+      }
+    };
+
+    showModal('Admin Access', adminBody, [
+      { text: 'Unlock', class: 'btn-primary', closeOnClick: false, callback: checkAdminPass },
+      { text: 'Cancel' }
+    ]);
+
+    // Focus and add Enter key listener after modal is shown
+    setTimeout(() => {
+      const passInput = document.getElementById('admin-pass-input-modal');
+      if (passInput) {
+        passInput.focus();
+        passInput.addEventListener('keyup', (e) => {
+          if (e.key === 'Enter') {
+            checkAdminPass();
+          }
+        });
+      }
+    }, 100);
+  });
+}
+
+const factoryZeroBtn = document.getElementById('factory-zero-btn');
+if (factoryZeroBtn) {
+  factoryZeroBtn.addEventListener('click', () => {
+    showModal(
+      'Confirm Set Home',
+      'Set current position as <strong>Home</strong>?<br>This also sets the soft-limit reference (Factory Zero) at the current position.',
+      [
+        {
+          text: 'Yes, Set Home',
+          class: 'btn-primary',
+          callback: () => {
+            sendCommand('setFactoryZero', {});
+            showMessage('Home position set!', '#save-message', 3000);
+          }
+        },
+        { text: 'Cancel', class: 'btn-secondary' }
+      ]
+    );
+  });
+}
+
+// ===== STOP CALIB BUTTON =====
+const stopCalibBtn = document.getElementById('stop-calib-btn');
+
+// ===== FACTORY RESET BUTTON =====
+const factoryResetBtn = document.getElementById('factory-reset-btn');
+if (factoryResetBtn) {
+  factoryResetBtn.addEventListener('click', () => {
+    showModal(
+      '⚠ Factory Reset',
+      '<strong style="color:var(--danger);">WARNING:</strong> This will erase ALL settings (WiFi, the saved WiFi network list, mDNS name, motor config, limits, tuning, password) and reboot the device.<br><br>The device will restore factory defaults on next boot. This cannot be undone.<br><br>Type the <strong>factory reset password</strong> (<code>password</code>) to confirm:' +
+      '<input type="password" id="factory-reset-pass" class="input-field" style="margin-top:10px;width:100%;" placeholder="Factory reset password" autocomplete="off">',
+      [
+        {
+          text: 'Yes, Factory Reset',
+          class: 'btn-danger',
+          closeOnClick: false,
+          callback: () => {
+            const passEl = document.getElementById('factory-reset-pass');
+            const pass = passEl ? passEl.value : '';
+            if (!pass) {
+              showMessage('⚠ Enter the factory reset password to confirm.', '#save-message', 3000);
+              if (passEl) passEl.focus();
+              return;
+            }
+            sendCommand('factoryReset', { pass: pass });
+          }
+        },
+        { text: 'Cancel', class: 'btn-secondary' }
+      ]
+    );
+  });
+}
+
+// ===== CHANGE PASSWORD BUTTON =====
+const changePassBtn = document.getElementById('change-pass-btn');
+if (changePassBtn) {
+  changePassBtn.addEventListener('click', () => {
+    const oldPass = (document.getElementById('admin-old-pass') || {}).value || '';
+    const newPass = (document.getElementById('admin-new-pass') || {}).value || '';
+    if (!newPass || newPass.length >= 64) {
+      showMessage('⚠ New password must be 1–63 characters.', '#change-pass-msg', 3000);
+      return;
+    }
+    sendCommand('changePassword', { old_pass: oldPass, new_pass: newPass });
+  });
+}
+if(stopCalibBtn) stopCalibBtn.addEventListener('click', () => { sendCommand('stop', {}); });
+
+// ===== CALIBRATION BUTTONS =====
+// Auto Set Home button removed from Admin Config
+// const autoSetHomeBtn = document.getElementById('auto-set-home-btn');
+
+const calibAzBtn = document.getElementById('calib-az-btn');
+if (calibAzBtn) calibAzBtn.addEventListener('click', () => {
+  performCalibrationCheck(() => {
+    const travelAz = parseFloat(document.getElementById('calib-travel-az').value) || 20;
+    showModal(
+      'Confirm Calibration',
+      `Start AZIMUTH Axis Calibration?<br>Travel: ${travelAz}°<br><br>The AZ axis will move to both hard limits. <strong>Ensure the path is clear!</strong>`,
+      [
+        { text: 'Start Calibration', class: 'btn-info', callback: () => {
+          sendCommand('calibAxis', { axis: 'az', travel_az: travelAz });
+          showMessage('Calibrating AZ Axis... Please wait.', '#save-message', 10000);
+        }},
+        { text: 'Cancel' }
+      ]
+    );
+  });
+});
+
+const calibAltBtn = document.getElementById('calib-alt-btn');
+if (calibAltBtn) calibAltBtn.addEventListener('click', () => {
+  performCalibrationCheck(() => {
+    const travelAlt = parseFloat(document.getElementById('calib-travel-alt').value) || 30;
+    showModal(
+      'Confirm Calibration',
+      `Start ALTITUDE Axis Calibration?<br>Travel: ${travelAlt}°<br><br>The ALT axis will move to both hard limits. <strong>Ensure the path is clear!</strong>`,
+      [
+        { text: 'Start Calibration', class: 'btn-info', callback: () => {
+          sendCommand('calibAxis', { axis: 'alt', travel_alt: travelAlt });
+          showMessage('Calibrating ALT Axis... Please wait.', '#save-message', 10000);
+        }},
+        { text: 'Cancel' }
+      ]
+    );
+  });
+});
+
+const calibAllBtn = document.getElementById('calib-all-btn');
+if (calibAllBtn) calibAllBtn.addEventListener('click', () => {
+  performCalibrationCheck(() => {
+    const travelAz = parseFloat(document.getElementById('calib-travel-az').value) || 20;
+    const travelAlt = parseFloat(document.getElementById('calib-travel-alt').value) || 30;
+    showModal(
+      'Confirm Calibration',
+      `Start ALL Axis Calibration?<br>Az Travel: ${travelAz}°, Alt Travel: ${travelAlt}°<br><br>Sequence: AZ then ALT.<br>The mount will move to limits on both axes.<br><strong>Ensure the path is clear!</strong>`,
+      [
+        { text: 'Start All', class: 'btn-primary', callback: () => {
+          sendCommand('calibAxis', { axis: 'all', travel_az: travelAz, travel_alt: travelAlt });
+          showMessage('Calibrating ALL Axes... Please wait.', '#save-message', 20000);
+        }},
+        { text: 'Cancel' }
+      ]
+    );
+  });
+});
+
+modalCloseBtn.addEventListener('click', hideModal);
+window.addEventListener('click', (e) => { if (e.target === modal) hideModal(); });
+
+function renderWifiList(networks) {
+  const listContainer = document.getElementById('modal-body');
+  if (!listContainer) return;
+  
+  listContainer.innerHTML = '';
+  if (networks.length === 0) {
+    listContainer.innerHTML = '<div class="wifi-scanning">No networks found.</div>';
+    return;
+  }
+  
+  // Sắp xếp theo RSSI giảm dần (sóng mạnh lên đầu)
+  networks.sort((a, b) => b.rssi - a.rssi);
+
+  networks.forEach(net => {
+    const itemContainer = document.createElement('div');
+    itemContainer.className = 'wifi-item';
+    itemContainer.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? svgIco('i-lock') : svgIco('i-unlock')}</span>`;
+    itemContainer.addEventListener('click', () => {
+      document.getElementById('wifi-ssid').value = net.ssid;
+      hideModal();
+      document.getElementById('wifi-pass').focus();
+    });
+    listContainer.appendChild(itemContainer);
+    const item = document.createElement('div');
+    item.className = 'wifi-item';
+    item.innerHTML = `<span><strong>${net.ssid}</strong></span> <span>${net.rssi} dBm ${net.auth === 'SECURE' ? svgIco('i-lock') : svgIco('i-unlock')}</span>`;
+  });
+  modalTitle.textContent = 'Select WiFi Network'; // Update title
+}
+
+// ===== LOGGING =====
+function appendLog(message) {
+  if (message.includes("Manual stop sequence completed. Hardlimit re-enabled.")) return;
+  // Log nhiều dòng được render bằng white-space: pre-line ⇒ bỏ whitespace/newline ở CUỐI
+  // để không sinh thêm dòng trống (vd log "ApplyConf: ...\n").
+  message = String(message).replace(/[\s\n]+$/, '');
+  const now = new Date();
+  const time = now.toLocaleTimeString();
+  const entry = document.createElement('div');
+  entry.className = 'history-entry';
+  
+  // Chuẩn bị nội dung text
+  let fullText = `[${time}] ${message}`;
+  
+  // Tô màu log dựa trên từ khóa: [Apply] = cam, [SAVE&REBOOT required] = vàng
+  if (message.includes("[SAVE&REBOOT required]")) {
+    entry.classList.add('log-reboot');
+  } else if (message.includes("[diff]") || message.includes("result=DIFF")) {
+    // #29: dòng LỆCH của "Load Drive Config" (giá trị firmware <> giá trị đọc từ driver) = CAM
+    entry.classList.add('log-diff');
+  } else if (message.includes("[Apply]")) {
+    entry.classList.add('log-apply');
+  } else if (message.includes("Reset by User")) {
+    entry.classList.add('log-reset');
+  } else if (message.includes("Detecting")) {
+    // Default color
+  } else if (message.includes("CRITICAL") || message.includes("ERROR") || message.includes("Error") || message.includes("failed") || message.includes("Short to Ground") || message.includes("Over Temperature") || message.includes("Hardlimit reached")) {
+    entry.classList.add('log-critical');
+  } else if (message.includes("WARNING") || message.includes("limit") || message.includes("Limit") || message.includes("Hit") || message.includes("Pre-Warn") || message.includes("ALIGN ERROR")) {
+    entry.classList.add('log-warning');
+  } else if (message.includes("COMPLETED") || message.includes("Success") || message.includes("saved")) {
+    entry.classList.add('log-success');
+  }
+  
+  // Tô màu cam cho riêng cụm từ (Backlash applied)
+  // Sử dụng innerHTML để chèn thẻ span màu
+  fullText = fullText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); // Escape HTML cơ bản
+  if (fullText.includes("(Backlash applied)")) {
+    fullText = fullText.replace(/\(Backlash applied\)/g, '<span class="log-backlash">(Backlash applied)</span>');
+  } else if (fullText.includes("Backlash applied")) {
+    fullText = fullText.replace(/Backlash applied/g, '<span class="log-backlash">(Backlash applied)</span>');
+  }
+  
+  entry.innerHTML = fullText;
+  
+  const logContainer = document.getElementById('system-log');
+  if (!logContainer) return;
+
+  if (logContainer.querySelector('.history-empty')) {
+    logContainer.innerHTML = '';
+  }
+  
+  // Thêm vào đầu danh sách (mới nhất lên trên)
+  logContainer.insertBefore(entry, logContainer.firstChild);
+  
+  // Giới hạn 50 dòng log
+  while (logContainer.children.length > 50) {
+    logContainer.removeChild(logContainer.lastChild);
+  }
+}
+
+// ===== SERIAL LOG =====
+function isPollingSerialMessage(msgStr) {
+  return msgStr === '?' || msgStr.startsWith('<');
+}
+
+function appendSerialLog(dir, message) {
+  const now = new Date();
+  const time = now.toLocaleTimeString();
+  const msgStr = String(message);
+  const isPolling = isPollingSerialMessage(msgStr);
+  const hidePoll = document.getElementById('hide-polling-serial');
+
+  // Khi bật "Hide polling...": không đưa dòng polling vào bảng để chúng không chiếm bộ đệm
+  // và không đẩy các dòng đang hiển thị đi mất.
+  if (isPolling && hidePoll && hidePoll.checked) return;
+
+  const entry = document.createElement('div');
+  entry.className = 'history-entry';
+  entry.classList.add(dir === 'RX' ? 'serial-log-rx' : 'serial-log-tx');
+  // Đánh dấu dòng polling/telemetry phản hồi để checkbox "Hide polling..." có thể ẩn
+  if (isPolling) entry.classList.add('serial-log-poll');
+  const safe = msgStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  entry.textContent = `[${time}] ${dir === 'RX' ? '▼ RX' : '▲ TX'} ${safe}`;
+  const container = document.getElementById('serial-log');
+  if (!container) return;
+  if (container.querySelector('.history-empty')) container.innerHTML = '';
+  container.insertBefore(entry, container.firstChild);
+  // Giới hạn bộ đệm theo số dòng đang hiển thị (không đếm ngầm dòng ẩn/polling)
+  trimSerialLog(container);
+}
+
+const resetErrorBtn = document.getElementById('reset-error-btn');
+if(resetErrorBtn) resetErrorBtn.addEventListener('click', () => {
+  sendCommand('resetError', {});
+});
+
+// Nút "Load Drive Config" (panel Motor Driver): đọc NGƯỢC cấu hình THẬT trong TMC2209 qua Serial1
+// → firmware in log `[Drive compare]` (mỗi thông số 1 dòng) cho cả 2 trục vào System log (chỉ chạy khi motor đứng yên).
+const loadDrvCfgBtn = document.getElementById('load-drvcfg-btn');
+if(loadDrvCfgBtn) loadDrvCfgBtn.addEventListener('click', () => {
+  sendCommand('loadDriverConfig', {});
+});
+
+const clearLogBtn = document.getElementById('clear-log-btn');
+if(clearLogBtn) clearLogBtn.addEventListener('click', () => {
+  const logContainer = document.getElementById('system-log');
+  if(logContainer) logContainer.innerHTML = '<div class="history-empty">Waiting for logs...</div>';
+});
+
+const toggleSerialLogBtn = document.getElementById('toggle-serial-log-btn');
+if (toggleSerialLogBtn) toggleSerialLogBtn.addEventListener('change', () => {
+  const panel = document.getElementById('serial-log-panel');
+  const isChecked = toggleSerialLogBtn.checked;
+  if (panel) panel.style.display = isChecked ? 'block' : 'none';
+  // Gửi xuống backend để bật/tắt việc gửi gói tin Serial log qua WebSocket + lưu FRAM
+  sendCommand('setSerialLog', { enabled: isChecked });
+});
+
+// Checkbox "Enable Communication Watchdog" trong thẻ Serial log: giống checkbox trong Admin Config
+// (cùng cài đặt enableCommWatchdog), giữ đồng bộ 2 chiều với checkbox admin và áp dụng ngay lập tức.
+function syncCommWatchdogCheckboxes(srcChecked) {
+  const adminCb = document.getElementById('enable-comm-watchdog');
+  const serialCb = document.getElementById('enable-comm-watchdog-serial');
+  if (adminCb) adminCb.checked = srcChecked;
+  if (serialCb) serialCb.checked = srcChecked;
+}
+const enableCommWatchdogSerialCb = document.getElementById('enable-comm-watchdog-serial');
+if (enableCommWatchdogSerialCb) enableCommWatchdogSerialCb.addEventListener('change', () => {
+  if (isUpdatingFromWS) return;
+  syncCommWatchdogCheckboxes(enableCommWatchdogSerialCb.checked);
+  // Áp dụng + lưu FRAM ngay (không cần bấm Apply ở tab CONFIG)
+  sendCommand('setCommWatchdog', { enabled: enableCommWatchdogSerialCb.checked });
+});
+const enableCommWatchdogCb = document.getElementById('enable-comm-watchdog');
+if (enableCommWatchdogCb) enableCommWatchdogCb.addEventListener('change', () => {
+  if (isUpdatingFromWS) return;
+  syncCommWatchdogCheckboxes(enableCommWatchdogCb.checked);
+});
+
+// Checkbox admin "Reject second web client": cờ này cần SAVE & REBOOT nên KHÔNG gửi lệnh ngay khi
+// tick — giá trị chỉ được gửi kèm payload lúc bấm SAVE (xem collectConfig -> admin).
+// Nút APPLY không có tác dụng với cờ này (firmware chỉ đọc cờ trong saveConfig).
+
+const clearSerialLogBtn = document.getElementById('clear-serial-log-btn');
+if (clearSerialLogBtn) clearSerialLogBtn.addEventListener('click', () => {
+  const container = document.getElementById('serial-log');
+  if (container) container.innerHTML = '<div class="history-empty">Waiting for serial data...</div>';
+});
+
+// Lọc hiển thị RX/TX
+// Cắt bớt bảng Serial log: chỉ giữ tối đa 200 dòng ĐANG HIỂN THỊ. Các dòng bị ẩn
+// (polling/telemetry khi bật "Hide polling...") bị loại bỏ hẳn khỏi bộ đệm để không
+// đếm ngầm và không đẩy các dòng đang hiển thị đi mất.
+function trimSerialLog(container) {
+  if (!container) return;
+  const hidePoll = document.getElementById('hide-polling-serial');
+  if (hidePoll && hidePoll.checked) {
+    Array.from(container.querySelectorAll('.serial-log-poll')).forEach(el => el.remove());
+  }
+  while (container.children.length > 200) container.removeChild(container.lastChild);
+}
+
+function applySerialLogFilters() {
+  const container = document.getElementById('serial-log');
+  if (!container) return;
+  const showRx = document.getElementById('show-serial-rx');
+  const showTx = document.getElementById('show-serial-tx');
+  const hidePoll = document.getElementById('hide-polling-serial');
+  container.classList.toggle('hide-rx', showRx ? !showRx.checked : false);
+  container.classList.toggle('hide-tx', showTx ? !showTx.checked : false);
+  container.classList.toggle('hide-poll', hidePoll ? hidePoll.checked : false);
+  // Áp dụng ngay: loại bỏ dòng polling khỏi bộ đệm khi đang bật ẩn
+  if (hidePoll && hidePoll.checked) trimSerialLog(container);
+}
+
+const showSerialRxCb = document.getElementById('show-serial-rx');
+if (showSerialRxCb) showSerialRxCb.addEventListener('change', applySerialLogFilters);
+const showSerialTxCb = document.getElementById('show-serial-tx');
+if (showSerialTxCb) showSerialTxCb.addEventListener('change', applySerialLogFilters);
+const hidePollingSerialCb = document.getElementById('hide-polling-serial');
+if (hidePollingSerialCb) hidePollingSerialCb.addEventListener('change', applySerialLogFilters);
+
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+if(clearHistoryBtn) clearHistoryBtn.addEventListener('click', () => {
+  // if (confirm('Clear movement history?')) {
+  //   const hl = document.getElementById('history-log'); if(hl) hl.innerHTML = '<div class="history-empty">No movements yet</div>';
+  // }
+});
+
+// ===== EXPORT LOG =====
+const exportLogBtn = document.getElementById('export-log-btn');
+if(exportLogBtn) exportLogBtn.addEventListener('click', () => {
+  const logContainer = document.getElementById('system-log');
+  if (!logContainer) return;  
+
+  const entries = logContainer.querySelectorAll('.history-entry');
+  if (entries.length === 0) {
+    showModal('Export Log', 'No logs to export.', [{ text: 'OK', class: 'btn-primary' }]);
+    return;
+  }
+
+  // Tạo nội dung CSV với Header
+  let csvContent = "Timestamp,Message\n";
+  
+  entries.forEach(entry => {
+    let text = entry.textContent;
+    let time = "";
+    let msg = text;
+    
+    // Tách thời gian và nội dung từ format "[HH:MM:SS] Message"
+    const match = text.match(/^\[(.*?)\]\s+(.*)$/);
+    if (match) {
+      time = match[1];
+      msg = match[2];
+    }
+    
+    // Escape dấu ngoặc kép nếu có trong nội dung để không lỗi CSV
+    msg = msg.replace(/"/g, '""');
+    csvContent += `"${time}","${msg}"\n`;
+  });
+
+  // Tạo file blob và tải về
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "system_log.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+});
+
+// ===== UTILITY FUNCTIONS =====
+function sendCommand(cmd, data) {
+  // `getConfig` được phép cả khi hệ thống đang bị PC giữ quyền: nó chỉ ĐỌC thông tin (password WiFi)
+  // để hiển thị, không thay đổi gì — giống như đọc System log.
+  if (systemLocked && cmd !== 'scanWifi' && cmd !== 'setSerialLog' && cmd !== 'setCommWatchdog' && cmd !== 'resetError' && cmd !== 'getConfig') {
+    appendLog('WARNING: System is locked by PC (Serial/Wireless Control is Active).');
+    return false;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.error('WebSocket not connected');
+    return false;
+  }
+  
+  const message = {
+    cmd: cmd,
+    data: data
+  };
+  
+  ws.send(JSON.stringify(message));
+  return true;
+}
+
+// ===== SYSTEM LOCK (PC Serial đang điều khiển) =====
+function applySystemLock(locked) {
+  if (systemLocked === locked) return;
+  systemLocked = locked;
+  document.body.classList.toggle('system-locked', locked);
+  // Khóa luôn các ô nhập text/number (+textarea/select): set readonly để không sửa được
+  // qua bàn phím nữa (CSS đã chặn click/làm mờ). Chỉ chạy khi trạng thái thay đổi.
+  const editableSel = 'input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="tel"], input[type="email"], input[type="url"], input[type="date"], textarea';
+  document.querySelectorAll(editableSel).forEach((el) => {
+    if (locked) el.setAttribute('readonly', 'readonly');
+    else el.removeAttribute('readonly');
+  });
+  updateMotionControls();
+  if (locked) {
+    appendLog('WARNING: System is locked by PC (Serial/Wireless Control is Active).');
+  } else {
+    appendLog('System unlocked. Web control available.');
+  }
+}
+
+// Ép hàm Tuning thành biến toàn cục (Window object) để chống lỗi ReferenceError
+window.startTuning = function(axis) {
+  const fwd = parseInt(document.getElementById('tuning-fwd-time').value) || 10;
+  const rev = parseInt(document.getElementById('tuning-rev-time').value) || 20;
+  console.log(`[Tuning] Starting for ${axis}: Fwd=${fwd}s, Rev=${rev}s`);
+  sendCommand('startTuning', { axis: axis === 'az' ? 0 : 1, fwdTime: fwd, revTime: rev });
+  showMessage(`Tuning ${axis.toUpperCase()}... Stay clear!`, '#save-message', 5000);
+};
+
+window.startTuningTcool = function(axis) {
+  const fwd = parseInt(document.getElementById('tuning-fwd-time').value) || 10;
+  const rev = parseInt(document.getElementById('tuning-rev-time').value) || 20;
+  console.log(`[Tuning TCOOL] Starting for ${axis}: Fwd=${fwd}s, Rev=${rev}s`);
+  sendCommand('startTuningTcool', { axis: axis === 'az' ? 0 : 1, fwdTime: fwd, revTime: rev });
+  showMessage(`Tuning TCOOL ${axis.toUpperCase()}... Stay clear!`, '#save-message', 5000);
+};
+
+function showMessage(msg, elementId, duration = 2000) {
+  const elem = document.querySelector(elementId);
+  if (!elem) return;
+  
+  elem.textContent = msg;
+  elem.style.display = 'block';
+  
+  setTimeout(() => {
+    elem.style.display = 'none';
+  }, duration);
+}
+
+function setRebootingStatus() {
+  isRebooting = true;
+  const statusEl = document.getElementById('system-status');
+  if (statusEl) {
+    applySystemStatus("REBOOTING");
+    statusEl.classList.remove('status-text-success', 'status-text-danger', 'status-text-warning');
+    statusEl.classList.add('status-text-success', 'font-bold');
+  }
+}
+
+// "COMPLETED" luôn xuống dòng riêng (user chốt 2026-09-23): HOME_COMPLETED -> HOME ⏎ COMPLETED
+// ⇒ cột trạng thái hẹp lại, không phải thu nhỏ chữ quá nhiều mà vẫn giữ được khối logo.
+// ('\n' chỉ hiển thị khi CSS đặt white-space: pre-line — xem #system-status trong style.css)
+function formatStatusText(text) {
+  const raw = String(text || '');
+  if (!isSmallStatusScreen()) return raw;      // màn hình lớn: giữ nguyên 1 dòng như cũ
+  return raw.replace(/_(?=COMPLETED$)/, '\n');
+}
+
+let lastSystemStatusRaw = ''; // status GỐC (chưa format) để format lại khi đổi cỡ màn hình
+
+// Chỉ áp dụng cho MÀN HÌNH NHỎ (≤768px — cùng breakpoint với CSS):
+//   · "COMPLETED" xuống dòng riêng  · thu nhỏ cỡ chữ nếu rộng hơn chữ "READY"
+// Màn hình lớn (PC/tablet) giữ nguyên như cũ: 1 dòng, cỡ chữ gốc theo CSS.
+function isSmallStatusScreen() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+// Ghi status vào header: nhớ bản GỐC (để format lại khi resize) + format + fit theo cỡ màn hình
+function applySystemStatus(text) {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  lastSystemStatusRaw = String(text || '');
+  el.textContent = formatStatusText(lastSystemStatusRaw);
+  fitStatusText();
+}
+
+// Thu nhỏ cỡ chữ (CHỈ màn hình nhỏ): trần = đúng bề rộng chữ "READY" ở cỡ gốc ⇒
+// dòng DÀI NHẤT (vd COMPLETED) không bao giờ rộng hơn READY; cả 2 dòng cùng thu nhỏ, sàn 8px.
+function fitStatusText() {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  el.style.fontSize = '';                  // về cỡ gốc trong CSS rồi đo lại
+  if (!isSmallStatusScreen()) return;      // màn hình lớn: không thu nhỏ
+
+  const cs = getComputedStyle(el);
+  const base = parseFloat(cs.fontSize) || 16;
+  if (!el.clientWidth) return;
+
+  // Đo bề rộng "READY" ở cỡ gốc bằng canvas (không cần chèn DOM, không nháy chữ)
+  const canvas = fitStatusText.canvas || (fitStatusText.canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = `${cs.fontWeight} ${base}px ${cs.fontFamily}`;
+  const cap = ctx.measureText('READY').width;   // trần = bề rộng chữ "READY"
+
+  let size = base;
+  let guard = 30;
+  while (el.scrollWidth > cap + 0.5 && size > 8 && guard-- > 0) {
+    size -= 1;
+    el.style.fontSize = size + 'px';
+  }
+}
+
+// Xoay máy / đổi cỡ cửa sổ / đổi breakpoint ⇒ format lại text (có hay không xuống dòng) rồi fit lại
+function reapplyStatusText() {
+  const el = document.getElementById('system-status');
+  if (!el) return;
+  if (lastSystemStatusRaw) el.textContent = formatStatusText(lastSystemStatusRaw);
+  fitStatusText();
+}
+
+window.addEventListener('resize', reapplyStatusText);
+// Một số browser chỉ bắn sự kiện của media query (zoom / đổi breakpoint) ⇒ nghe thêm cho chắc
+window.matchMedia('(max-width: 768px)').addEventListener?.('change', reapplyStatusText);
+
+// ===== CHART FUNCTIONS =====
+function initChart() {
+  const canvas = document.getElementById('sg-chart');
+  if (!canvas) return;
+  
+  // Set resolution
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  
+  sgChartCtx = canvas.getContext('2d');
+}
+
+function updateChart(azVal, altVal, csAz = 31, csAlt = 31, tstepAz = 0, tstepAlt = 0) {
+  if (!sgChartCtx) initChart();
+  if (!sgChartCtx) return;
+  
+  const canvas = sgChartCtx.canvas;
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  // Shift data
+  sgDataAz.push(azVal);
+  sgDataAz.shift();
+  sgDataAlt.push(altVal);
+  sgDataAlt.shift();
+  csDataAz.push(csAz);
+  csDataAz.shift();
+  csDataAlt.push(csAlt);
+  csDataAlt.shift();
+  
+  // Clear
+  sgChartCtx.clearRect(0, 0, w, h);
+  
+  // Config
+  const maxVal = 510; // Max SG_RESULT value
+  const maxCurrentMa = 2000; // Thang đo dòng điện tối đa 2000 mA
+  const paddingLeft = 30; // Space for text labels
+  const paddingRight = 45; // Tăng khoảng trống để chứa chữ "mA"
+  const graphW = w - paddingLeft - paddingRight;
+  
+  // Draw Grid & Labels
+  sgChartCtx.strokeStyle = '#f0f0f0';
+  sgChartCtx.fillStyle = '#888';
+  sgChartCtx.font = '10px sans-serif';
+  sgChartCtx.textBaseline = 'middle';
+  
+  const steps = 5;
+  for(let i=0; i<=steps; i++) {
+    const val = Math.round(i * (maxVal / steps));
+    const y = h - (val / maxVal * h);
+    
+    // Grid line
+    sgChartCtx.beginPath();
+    sgChartCtx.moveTo(paddingLeft, y);
+    sgChartCtx.lineTo(w - paddingRight, y);
+    sgChartCtx.stroke();
+    
+    // Labels
+    // Điều chỉnh vị trí text để không bị cắt ở biên trên/dưới
+    let textY = y;
+    if (i === 0) textY -= 6; 
+    if (i === steps) textY += 6;
+
+    // Trục trái: StallGuard (0-510)
+    sgChartCtx.textAlign = 'right';
+    sgChartCtx.fillText(val, paddingLeft - 5, textY);
+
+    // Trục phải: Actual Current (mA)
+    sgChartCtx.textAlign = 'left';
+    const val_ma = Math.round(i * (maxCurrentMa / steps));
+    sgChartCtx.fillText(val_ma + ' mA', w - paddingRight + 5, textY);
+  }
+  
+  // Helper to draw line
+  const drawLine = (data, color, isCurrent = false) => {
+    sgChartCtx.strokeStyle = color;
+    sgChartCtx.lineWidth = isCurrent ? 1.5 : 2;
+    sgChartCtx.setLineDash(isCurrent ? [5, 3] : []); // Nét đứt cho dòng điện
+    sgChartCtx.beginPath();
+    const step = graphW / (sgHistoryLength - 1);
+    data.forEach((val, i) => {
+      let y;
+      if (isCurrent) {
+        // Quy đổi CS (0-31) sang mA vật lý (Dựa trên Rsense = 0.11 và Vfs nội = 0.325V)
+        const ma = ((val + 1) / 32) * 1767.76;
+        y = h - (ma / maxCurrentMa * h);
+      } else {
+        // Scale 0-510 (StallGuard)
+        y = h - (val / 510 * h);
+      }
+      const x = paddingLeft + i * step;
+      if (i===0) sgChartCtx.moveTo(x, y); else sgChartCtx.lineTo(x, y);
+    });
+    sgChartCtx.stroke();
+  };
+  
+  // Vẽ dòng điện trước (nằm dưới)
+  drawLine(csDataAz, '#1abc9c', true); // Cyan
+  drawLine(csDataAlt, '#f39c12', true); // Orange
+
+  // Vẽ StallGuard sau (nằm trên)
+  drawLine(sgDataAz, '#3498db'); // Blue
+  drawLine(sgDataAlt, '#e74c3c'); // Red
+  sgChartCtx.setLineDash([]); // Reset dash
+
+  // Update chart footer with TSTEP values
+  const chartFooter = document.querySelector('.chart-footer');
+  if (chartFooter) {
+    chartFooter.innerHTML = `SG: 0-510 (Solid) | Curr: 0-2000 mA (Dash)<br>AZ: TSTEP=${tstepAz} | ALT: TSTEP=${tstepAlt}`;
+  }
+}
+
+// ===== THEME HANDLING =====
+function initTheme() {
+  const themeSelect = document.getElementById('theme-select');
+  const savedTheme = localStorage.getItem('theme') || 'auto';
+  
+  if (themeSelect) {
+    themeSelect.value = savedTheme;
+    themeSelect.addEventListener('change', (e) => {
+      const newTheme = e.target.value;
+      localStorage.setItem('theme', newTheme);
+      applyTheme(newTheme);
+    });
+  }
+  applyTheme(savedTheme);
+}
+
+function applyTheme(theme) {
+  if (theme === 'dark' || theme === 'light') {
+    document.documentElement.setAttribute('data-theme', theme);
+  } else {
+    document.documentElement.removeAttribute('data-theme'); // Auto (Adaptive)
+  }
+}
+
+function updateStepperDisplay(id) {
+  // Ô Relative giờ là <input type="number"> hiển thị trực tiếp (nhập được bằng bàn phím), không còn
+  // span hiển thị riêng ⇒ hàm này chỉ có nhiệm vụ ép giá trị về đúng khoảng min/max khai báo.
+  const input = document.getElementById(id);
+  if (!input) return;
+  const min = parseInt(input.getAttribute('min'));
+  const max = parseInt(input.getAttribute('max'));
+  let val = parseInt(input.value);
+  if (isNaN(val)) val = 0;
+  if (!isNaN(min) && val < min) val = min;
+  if (!isNaN(max) && val > max) val = max;
+  input.value = String(val);
+}
+
+// ===== OTA UPDATE FUNCTIONS =====
+function parseVersionParts(version) {
+  return String(version || '0.0.0').split('.').map((part) => parseInt(part, 10) || 0);
+}
+
+function compareVersionsDesc(versionA, versionB) {
+  const a = parseVersionParts(versionA);
+  const b = parseVersionParts(versionB);
+  const maxLen = Math.max(a.length, b.length);
+  for (let i = 0; i < maxLen; i++) {
+    const diff = (b[i] || 0) - (a[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function formatUpdateReleaseDate(raw) {
+  if (!raw) return 'Unknown';
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString('vi-VN');
+}
+
+// GitHub API (api.github.com/repos/.../contents/) hay trả 403 do rate-limit ⇒ KHÔNG dùng để liệt kê file
+// nữa. meta.json trên raw.githubusercontent.com không bị rate-limit và đã chứa đủ tên/loại/version/size/ngày.
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/MLAstroRPA/Firmware-Update/main/';
+
+function buildEntryFromMetaName(name, meta) {
+  const entry = (meta && meta[name]) || {};
+  return {
+    name,
+    size: Number(entry.size_bytes) || 0,
+    download_url: GITHUB_RAW_BASE + encodeURIComponent(name),
+  };
+}
+
+function buildUpdateCatalog(files, meta) {
+  const groups = new Map();
+  const extras = { bootloader: null, partitions: null };
+
+  // files (danh sách từ GitHub API) có thể không có ⇒ dùng luôn meta.json làm nguồn duy nhất.
+  const list = (Array.isArray(files) && files.length)
+    ? files
+    : Object.keys(meta || {}).map((name) => buildEntryFromMetaName(name, meta));
+
+  list.forEach((file) => {
+    const name = String(file.name || '');
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.bin')) return;
+
+    if (lower.includes('bootloader')) {
+      extras.bootloader = file;
+      return;
+    }
+    if (lower.includes('partition')) {
+      extras.partitions = file;
+      return;
+    }
+
+    const kind = lower.includes('spiffs') ? 'spiffs' : (lower.includes('firmware') ? 'firmware' : '');
+    if (!kind) return;
+
+    const version = extractVersion(name);
+    if (version === 'unknown') return;
+
+    const entry = meta[name] || {};
+    if (!groups.has(version)) {
+      groups.set(version, {
+        version,
+        firmware: null,
+        spiffs: null,
+        releaseDateUtc: entry.release_date_utc || '',
+        description: entry.description || '',
+      });
+    }
+
+    const group = groups.get(version);
+    group[kind] = {
+      kind,
+      name,
+      url: file.download_url,
+      size: file.size,
+      description: entry.description || '',
+      releaseDateUtc: entry.release_date_utc || '',
+    };
+
+    if (!group.description && entry.description) group.description = entry.description;
+    if (!group.releaseDateUtc && entry.release_date_utc) group.releaseDateUtc = entry.release_date_utc;
+  });
+
+  // meta.json chỉ có entry firmware/spiffs ⇒ bootloader.bin & partitions.bin nằm trong repo nhưng
+  // KHÔNG có entry. Trước đây liệt kê file qua GitHub API nên chúng vẫn hiện; nay phải bổ sung tay
+  // từ URL raw cố định (đã kiểm tra tồn tại: HTTP 200).
+  if (!extras.bootloader) extras.bootloader = buildEntryFromMetaName('bootloader.bin', meta);
+  if (!extras.partitions) extras.partitions = buildEntryFromMetaName('partitions.bin', meta);
+
+  const versions = Array.from(groups.values()).sort((a, b) => compareVersionsDesc(a.version, b.version));
+  return { versions, extras };
+}
+
+function buildVersionOptionMarkup(group, checked) {
+  const types = [];
+  if (group.firmware) types.push('<span style="color:var(--primary); font-weight:bold;">Firmware</span>');
+  if (group.spiffs) types.push('<span style="color:var(--success); font-weight:bold;">SPIFFS</span>');
+  const desc = group.description || 'No description';
+  const releaseDate = formatUpdateReleaseDate(group.releaseDateUtc);
+  const sizeParts = [];
+  if (group.firmware) sizeParts.push(`FW ${(group.firmware.size / 1024).toFixed(0)} KB`);
+  if (group.spiffs) sizeParts.push(`SPIFFS ${(group.spiffs.size / 1024).toFixed(0)} KB`);
+
+  return `
+    <label class="checkbox-label" style="display:flex; align-items:flex-start; padding:12px; border-bottom:1px solid var(--border); cursor:pointer; width:100%;">
+      <input type="radio" name="update-version" value="${group.version}" ${checked ? 'checked' : ''}>
+      <div style="margin-left:10px; flex:1;">
+        <div style="font-weight:bold;">Version ${group.version}</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Package: ${types.join(' + ')}</div>
+        <div style="font-size:11px; color:var(--text-muted);">Release: ${releaseDate}${sizeParts.length ? ' | ' + sizeParts.join(' | ') : ''}</div>
+        <div style="font-size:11px; color:var(--text-muted);">${desc}</div>
+      </div>
+    </label>`;
+}
+
+function buildUpdateModalMarkup(catalog, options = {}) {
+  const forceUsb = Boolean(options.forceUsb);
+  const offlineClient = Boolean(options.offlineClient);
+  const optionsHtml = catalog.versions.map((group, index) => buildVersionOptionMarkup(group, index === 0)).join('');
+  const hasExtras = Boolean(catalog.extras.bootloader || catalog.extras.partitions);
+
+  // Cách A (client có internet) dùng proxy nên ESP32 khỏi cần internet; nếu client mất mạng thì
+  // danh sách này do ESP32 tải hộ và ESP32 phải tự tải .bin ⇒ cần STA có internet.
+  // Ai tải .bin? MẶC ĐỊNH là ESP32 (tự tải qua STA) — chỉ khi ESP không có internet mới để browser
+  // tải hộ rồi đẩy sang. Ghi chú này nằm trong modal, hiện khi chọn "Update via OTA".
+  const espDownloads = Boolean(options.espOnline);
+  const transportNote = `
+      <div id="ota-transport-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
+        ${espDownloads
+          ? 'MLAstroRPA downloads the update itself over its own Wi-Fi (STA) internet &mdash; keep the device connected to the router; you can close this tab after START.'
+          : 'This browser downloads the update and pushes it to the device (the ESP32 has no internet). Keep this tab open until the update finishes &mdash; on a phone, keep the screen on and stay in the browser (switching apps or locking the screen pauses the upload; it will restart from the first block automatically).'}
+      </div>
+    `;
+
+  // Mobile/tablet trên host HTTPS (Beta UI): backend không kết nối + Web Serial bị chặn ⇒ không
+  // cập nhật được bằng cả OTA lẫn COM ⇒ ẩn bộ chọn mode, khoá START UPDATE và hiện cảnh báo.
+  const mobileBlocked = isMobileClient() && window.isSecureContext && forceUsb;
+
+  return `
+    ${transportNote}
+    ${forceUsb ? `
+      <div id="usb-forced-note" style="display:none; margin-bottom:12px; padding:10px; border:1px solid var(--warning); border-radius:6px; background: rgba(243, 156, 18, 0.08); color:var(--warning); font-size:12px;">
+        ${isMobileClient()
+          ? 'You are using mobile/tablet &amp; this web UI is not connected to MLAstro RPA firmware. CAN NOT UPDATE VIA OTA/SERIAL. Try refresh the web page and see STATUS to make sure web UI connected to MLAstro RPA firmware'
+          : 'Backend is not connected. USB Serial update has been selected automatically. OTA is unavailable right now.'}
+      </div>
+    ` : ''}
+    <div id="online-version-list" style="max-height: 280px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">${optionsHtml}</div>
+    <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:grid; gap:10px;">
+      ${mobileBlocked ? `
+      <div style="font-size:11px; color:var(--text-muted);">- OTA update is not available on phone/tablet</div>
+      ` : `
+      <!-- Mode "Update via OTA" (tick sẵn khi chạy trên webserver firmware, xem ${forceUsb}) -->
+      <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+        <input type="radio" name="update-mode" id="update-local-wifi-check" ${forceUsb ? 'disabled title="OTA needs a live connection to the device. This page is not served by the device \u2014 use Update via COM port."' : 'checked'}>
+        <span>Update via OTA</span>
+      </label>`}
+      <label id="ota-local-checkbox-row" class="checkbox-label" style="display:none; align-items:center; gap:10px; width:100%; padding-left:24px;">
+        <input type="checkbox" id="update-local-wifi-offline">
+        <span>Local update <em>(only firmware.bin or spiffs.bin)</em></span>
+      </label>
+      <div id="local-wifi-options" class="hidden" style="display:none; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+        <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+        <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+        <div style="font-size:11px; color:var(--text-muted);">
+          The file is sent to the device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable. Recognised by filename: <b>firmware</b>, <b>spiffs</b>.
+        </div>
+        <div id="local-wifi-file-list" style="display:grid; gap:8px;"></div>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center;">
+        ${noWebSerialDevice ? '' : `
+        <label class="checkbox-label" style="display:flex; align-items:center; gap:8px;">
+          <input type="radio" name="update-mode" id="update-via-usb" ${forceUsb ? 'checked' : ''}>
+          <span>Update via COM port (ESP Web Tools)</span>
+        </label>`}
+      </div>
+      ${noWebSerialDevice ? `
+      <div style="font-size:11px; color:var(--text-muted);">- ${MSG_NO_USB_SERIAL}</div>` : ''}
+      <div id="usb-upload-options" class="${forceUsb ? '' : 'hidden'}" style="display:${forceUsb ? 'grid' : 'none'}; gap:10px; padding-left:24px; border-left:2px solid var(--border);">
+        <div id="usb-upload-extra-options" style="display:grid; gap:8px; ${hasExtras ? '' : 'display:none;'}">
+          ${catalog.extras.bootloader ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-bootloader"><span>bootloader.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
+          ${catalog.extras.partitions ? '<label class="checkbox-label" style="display:flex; align-items:center; gap:10px;"><input type="checkbox" id="include-partitions"><span>partitions.bin <em>(First time Flash have to check this)</em></span></label>' : ''}
+        </div>
+        ${window.isSecureContext ? `
+        <label class="checkbox-label" style="display:flex; align-items:center; gap:10px; width:100%;">
+          <input type="checkbox" id="update-local-offline">
+          <span>Local update <em>(use offline .bin files)</em></span>
+        </label>
+        <div id="local-update-options" class="hidden" style="display:none; gap:10px; border:1px dashed var(--border); border-radius:6px; padding:10px;">
+          <input type="file" id="local-update-files" multiple accept=".bin" style="display:none;">
+          <button type="button" class="btn btn-secondary btn-small" id="pick-local-update-files">Select local .bin files</button>
+          <div style="font-size:11px; color:var(--text-muted);">Detected by filename keywords only: firmware, bootloader, partition/partitions, spiffs — or a merged full-flash image (name containing <b>full</b>, e.g. <b>MLAstroRPA-full-1.8.0.bin</b>, written from 0x0).</div>
+          <div id="local-update-file-list" style="display:grid; gap:8px;"></div>
+        </div>` : ''}
+        <div style="font-size:11px; color:var(--text-muted);">ESP Web Tools uses Web Serial &mdash; COM port is selected via browser native dialog when clicking <b>INSTALL</b>. Requires Chrome/Edge and a secure context (HTTPS or localhost).</div>
+        <div id="usb-context-warning" style="display:none; border:1px solid var(--danger); border-radius:6px; padding:10px; background: rgba(231, 76, 60, 0.08);">
+          <div style="font-size:12px; color:var(--danger); margin-bottom:8px;">
+            This page is running in an insecure context (likely ESP HTTP IP). Web Serial is blocked here.
+          </div>
+          <div id="usb-nonet-warning" style="display:none; border:1px dashed var(--warning); border-radius:6px; padding:8px; margin-bottom:8px; font-size:12px; color:var(--warning);">
+            ${MSG_NO_INTERNET}
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+              The COM port update uses the Beta UI page (HTTPS), which needs internet on this device. Use <b>Update via OTA</b> (Wi-Fi) instead, or connect this device to the internet.
+            </div>
+          </div>
+          <div id="beta-ui-note">
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+              For a <b>full flash</b> (bootloader + partitions + firmware + spiffs) open the Beta UI page in a tab &mdash; it needs internet on this device:
+              <div id="beta-ui-target-url" style="margin-top:4px; word-break:break-all;"></div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small" id="open-beta-ui-page">Open Beta UI</button>
+          </div>
+        </div>
+        <div id="update-modal-usb-host" class="hidden"></div>
+      </div>
+      <div id="update-modal-error" style="display:none; color:var(--danger); font-size:12px;"></div>
+    </div>`;
+}
+
+function showUpdateModalError(message) {
+  const errorEl = document.getElementById('update-modal-error');
+  if (!errorEl) return;
+  errorEl.textContent = message;
+  errorEl.style.display = 'block';
+}
+
+function clearUpdateModalError() {
+  const errorEl = document.getElementById('update-modal-error');
+  if (!errorEl) return;
+  errorEl.textContent = '';
+  errorEl.style.display = 'none';
+}
+
+function detectFlashKindFromName(filename) {
+  const lower = String(filename || '').toLowerCase();
+  // Ảnh GỘP (MLAstroRPA-full-x.y.z.bin — sinh bởi BUILD-REALEASE.py) kiểm tra TRƯỚC các từ khoá
+  // khác: tên có thể chứa cả "firmware" (vd "firmware full 1.7.1.bin") mà file gộp mới là đúng.
+  if (lower.includes('full') || lower.includes('merged')) return 'merged';
+  if (lower.includes('bootloader')) return 'bootloader';
+  if (lower.includes('partition')) return 'partitions';
+  if (lower.includes('firmware')) return 'firmware';
+  if (lower.includes('spiffs')) return 'spiffs';
+  return '';
+}
+
+function collectLocalUpdateFiles(inputId = 'local-update-files') {
+  const input = document.getElementById(inputId);
+  const selected = {
+    bootloader: null,
+    partitions: null,
+    firmware: null,
+    spiffs: null,
+    merged: null,
+  };
+  if (!input || !input.files) return selected;
+
+  Array.from(input.files).forEach((file) => {
+    const kind = detectFlashKindFromName(file.name);
+    if (!kind) return;
+    if (!selected[kind]) selected[kind] = file;
+  });
+  return selected;
+}
+
+function renderLocalUpdateFileList() {
+  const container = document.getElementById('local-update-file-list');
+  if (!container) return;
+
+  const filesByKind = collectLocalUpdateFiles();
+
+  // Ảnh GỘP (MLAstroRPA-full-*.bin) đã chứa cả bootloader + partitions + firmware + spiffs
+  // ⇒ chỉ hiện nó; trộn ảnh gộp với file lẻ là sai (ghi đè nhau).
+  if (filesByKind.merged) {
+    const merged = filesByKind.merged;
+    container.innerHTML = `
+      <label class="checkbox-label" style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <input type="checkbox" id="local-file-kind-merged" checked>
+        <span style="font-size:12px;"><strong>full image</strong>: ${merged.name} <span style="color:var(--text-muted);">(${(merged.size / 1024).toFixed(1)} KB @ 0x0)</span></span>
+      </label>
+      <div style="font-size:11px; color:var(--text-muted);">Merged image = bootloader + partitions + firmware + SPIFFS in one file, written from 0x0. Other selected files are ignored.</div>`;
+    return;
+  }
+
+  const items = [];
+  FLASH_KIND_ORDER.forEach((kind) => {
+    const file = filesByKind[kind];
+    if (!file) return;
+    items.push(`
+      <label class="checkbox-label" style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <input type="checkbox" id="local-file-kind-${kind}" checked>
+        <span style="font-size:12px;"><strong>${kind}</strong>: ${file.name} <span style="color:var(--text-muted);">(${(file.size / 1024).toFixed(1)} KB)</span></span>
+      </label>
+    `);
+  });
+
+  if (!items.length) {
+    container.innerHTML = '<div style="font-size:12px; color:var(--warning);">No recognized file found. Select .bin files containing names: firmware, bootloader, partition(s), spiffs — or a merged full image (name with <b>full</b>).</div>';
+    return;
+  }
+
+  container.innerHTML = items.join('');
+}
+
+function getSelectedLocalParts() {
+  const filesByKind = collectLocalUpdateFiles();
+  const parts = [];
+
+  // Ảnh gộp được tick ⇒ CHỈ nạp nó ở 0x0, bỏ qua mọi file lẻ khác.
+  const mergedFile = filesByKind.merged;
+  if (mergedFile && document.getElementById('local-file-kind-merged')?.checked) {
+    const mergedUrl = URL.createObjectURL(mergedFile);
+    parts.push({ kind: 'merged', path: mergedUrl, offset: FLASH_OFFSETS.merged, _blobUrl: mergedUrl });
+    return parts;
+  }
+
+  FLASH_KIND_ORDER.forEach((kind) => {
+    const file = filesByKind[kind];
+    const enabled = document.getElementById(`local-file-kind-${kind}`)?.checked;
+    if (!file || !enabled) return;
+    const fileUrl = URL.createObjectURL(file);
+    parts.push({ kind, path: fileUrl, offset: FLASH_OFFSETS[kind], _blobUrl: fileUrl });
+  });
+
+  return parts;
+}
+
+// ===== UPDATE TỪ FILE .BIN CÓ SẴN TRÊN MÁY — QUA WI-FI =====
+// Vì sao cần: Web Serial (ESP Web Tools) chỉ chạy ở secure context (HTTPS/localhost), mà Web UI
+// của thiết bị lại là HTTP (http://192.168.4.1) ⇒ khi client KHÔNG có internet thì không mở được
+// trang Beta UI (GitHub Pages) để flash bằng COM port. Đường này KHÔNG cần HTTPS: browser đọc
+// file .bin local rồi POST sang firmware qua /api/ota/upload (1.8.0+) — không internet, không cáp.
+function renderLocalWifiFileList() {
+  const container = document.getElementById('local-wifi-file-list');
+  if (!container) return;
+
+  const filesByKind = collectLocalUpdateFiles('local-wifi-files');
+  const items = [];
+  ['firmware', 'spiffs'].forEach((kind) => {
+    const file = filesByKind[kind];
+    if (!file) return;
+    items.push(`
+      <label class="checkbox-label" style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <input type="checkbox" id="local-wifi-kind-${kind}" checked>
+        <span style="font-size:12px;"><strong>${kind}</strong>: ${file.name} <span style="color:var(--text-muted);">(${(file.size / 1024).toFixed(1)} KB)</span></span>
+      </label>
+    `);
+  });
+
+  if (filesByKind.bootloader || filesByKind.partitions) {
+    items.push('<div style="font-size:11px; color:var(--warning);">bootloader / partitions cannot be written over Wi-Fi (the running firmware cannot reflash the bootloader or the partition table) — use the Multi-ESP-Flasher tool or the Beta UI over USB.</div>');
+  }
+  if (filesByKind.merged) {
+    items.push('<div style="font-size:11px; color:var(--warning);">A merged full-flash image cannot be written over Wi-Fi (it contains bootloader + partitions + the partition table) — use <b>Update via COM port</b> (USB) with this file.</div>');
+  }
+
+  container.innerHTML = items.length
+    ? items.join('')
+    : '<div style="font-size:12px; color:var(--warning);">No recognized file found. Select the .bin files named firmware / spiffs.</div>';
+}
+
+function showLocalWifiUpdateModal() {
+  showModal('Update via OTA', `
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+      Flash <b>firmware</b> and/or <b>spiffs</b> straight from this device over Wi-Fi &mdash; no internet, no HTTPS, no USB cable.
+      <br>Use the official <b>firmware x.y.z.bin</b> / <b>spiffs x.y.z.bin</b> of a release you already have on this device.
+    </div>
+    <input type="file" id="local-wifi-files" multiple accept=".bin" style="display:none;">
+    <button type="button" class="btn btn-secondary btn-small" id="pick-local-wifi-files">Select local .bin files</button>
+    <div id="local-wifi-file-list" style="display:grid; gap:8px; margin-top:12px;"></div>
+    <div id="local-wifi-error" style="display:none; color:var(--danger); font-size:12px; margin-top:10px;"></div>
+  `, [
+    { text: 'START UPDATE', class: 'btn-danger', closeOnClick: false, callback: startLocalWifiUpdate },
+    { text: 'Cancel' },
+  ]);
+
+  const pick = document.getElementById('pick-local-wifi-files');
+  const input = document.getElementById('local-wifi-files');
+  if (pick && input) {
+    pick.addEventListener('click', () => input.click());
+    input.addEventListener('change', renderLocalWifiFileList);
+  }
+}
+
+// reportError: hàm báo lỗi. Mặc định hiện ở #local-wifi-error (modal "Update Firmware From Local");
+// khi chạy trong modal Available Updates thì truyền showUpdateModalError để hiện ở #update-modal-error.
+function startLocalWifiUpdate(reportError) {
+  const errorEl = document.getElementById('local-wifi-error');
+  const fail = typeof reportError === 'function'
+    ? reportError
+    : (message) => {
+        if (!errorEl) return;
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+      };
+
+  if (!hasBackendConnection()) {
+    fail('Device is not connected (WebSocket is down). Reload this page and try again.');
+    return;
+  }
+
+  const filesByKind = collectLocalUpdateFiles('local-wifi-files');
+
+  // Ảnh gộp chứa bootloader + partition table ⇒ KHÔNG thể ghi qua Wi-Fi (chỉ qua USB/COM port).
+  if (filesByKind.merged) {
+    fail('A merged full-flash image cannot be written over Wi-Fi. Use "Update via COM port" (USB) with this file, or select the separate firmware / spiffs .bin files.');
+    return;
+  }
+
+  const steps = [];
+  ['firmware', 'spiffs'].forEach((kind) => {
+    const file = filesByKind[kind];
+    const enabled = document.getElementById(`local-wifi-kind-${kind}`)?.checked;
+    if (!file || !enabled) return;
+    steps.push({ type: kind, url: URL.createObjectURL(file), filename: file.name, rebootAfter: false });
+  });
+
+  if (!steps.length) {
+    fail('Select at least one firmware or spiffs .bin file.');
+    return;
+  }
+  steps[steps.length - 1].rebootAfter = true;
+
+  hideModal();
+  startOtaPlan('local', steps, { forceBrowserUpload: true });
+}
+
+function getPublicUsbUpdateUrl() {
+  // Trang này chạy HTTP (insecure) nên Web Serial bị chặn — nút "Open Beta UI" mở trang Beta HTTPS.
+  // Kèm cờ ?updates=1 (chung hàm buildUpdatesModalUrl với nút bấm ở header) để trang Beta tự chạy
+  // kiểm tra cập nhật và MỞ SẴN modal "Available Updates" (khối autoOpenUpdates cuối file).
+  return buildUpdatesModalUrl(PUBLIC_USB_UPDATE_URL);
+}
+
+// Mở trang Beta UI (HTTPS — nơi Web Serial/COM port chạy được). Dùng window name cố định nên
+// các lần sau trình duyệt TÁI SỬ DỤNG đúng tab đó thay vì mở thêm tab mới.
+function openBetaUiTab() {
+  window.open(getPublicUsbUpdateUrl(), 'mlastro_beta_ui');
+}
+
+// Flash qua COM xong ở tab Beta UI (tab do trang thiết bị mở) ⇒ tab đó tự đóng.
+// Lưu ý: window.close() chỉ chạy với tab do script mở (có window.opener) — tab người dùng tự
+// mở sẽ không tự đóng được, khi đó để người dùng tự đóng.
+function closeSelfIfOpenedFromDevice() {
+  let openedByScript = false;
+  try {
+    openedByScript = Boolean(window.opener) && !window.opener.closed;
+  } catch (error) {
+    openedByScript = false;
+  }
+  if (!openedByScript) return;
+  setTimeout(() => {
+    try {
+      window.close();
+    } catch (error) {
+      // Trình duyệt chặn close ⇒ để người dùng tự đóng tab
+    }
+  }, 3000);
+}
+
+// ---- ESP Web Tools: bám vào hộp thoại để biết flash đã xong & tự đóng tab ----------------
+// ESP Web Tools v9 KHÔNG phát sự kiện 'state-changed' ra ngoài trang: nút CONNECT chỉ tạo phần tử
+// <ewt-install-dialog> gắn vào document.body, và hộp thoại đó chỉ phát MỘT sự kiện 'closed' khi
+// người dùng đóng nó (cổng COM cũng được nhả đúng lúc này). Vì vậy phải theo dõi hộp thoại đó.
+let usbFlashSucceeded = false;
+let usbFlashWatchTimer = null;
+let usbFlashDialogEl = null;
+
+function readUsbFlashSuccess(dialogEl) {
+  if (!dialogEl) return false;
+  const installState = dialogEl._installState;
+  if (installState && installState.state === 'finished') return true;
+  const shadowText = dialogEl.shadowRoot ? dialogEl.shadowRoot.textContent : '';
+  return Boolean(shadowText) && shadowText.indexOf('Installation complete') >= 0;
+}
+
+function stopUsbFlashWatch() {
+  if (usbFlashWatchTimer) {
+    clearInterval(usbFlashWatchTimer);
+    usbFlashWatchTimer = null;
+  }
+}
+
+function onUsbFlashDialogClosed(dialogEl) {
+  const succeeded = usbFlashSucceeded || readUsbFlashSuccess(dialogEl);
+  stopUsbFlashWatch();
+  usbFlashDialogEl = null;
+  if (!succeeded) {
+    showMessage('USB flashing was cancelled or failed.', '#save-message', 5000);
+    return;
+  }
+  usbFlashPhase = 'finished';
+  showMessage('USB flashing complete. Device rebooting...', '#save-message', 5000);
+  closeSelfIfOpenedFromDevice();   // tab Beta UI mở từ trang thiết bị ⇒ flash xong tự đóng tab
+}
+
+function watchUsbFlashDialog(dialogEl) {
+  if (!dialogEl || dialogEl === usbFlashDialogEl) return;
+  usbFlashDialogEl = dialogEl;
+  usbFlashSucceeded = false;
+  stopUsbFlashWatch();
+  dialogEl.addEventListener('closed', () => onUsbFlashDialogClosed(dialogEl), { once: true });
+  // Trạng thái 'finished' chỉ tồn tại trong lúc hộp thoại hiện "Installation complete!" ⇒ poll
+  // để giữ cờ dính (sau khi bấm Next, _installState bị xoá về undefined).
+  usbFlashWatchTimer = setInterval(() => {
+    if (readUsbFlashSuccess(dialogEl)) usbFlashSucceeded = true;
+  }, 400);
+}
+
+function setupUsbFlashDialogWatcher() {
+  const scan = () => watchUsbFlashDialog(document.querySelector('ewt-install-dialog'));
+  const observer = new MutationObserver(scan);
+  observer.observe(document.body, { childList: true });
+  scan();
+}
+
+if (document.body) {
+  setupUsbFlashDialogWatcher();
+} else {
+  document.addEventListener('DOMContentLoaded', setupUsbFlashDialogWatcher);
+}
+
+function refreshUsbContextWarning() {
+  const warningEl = document.getElementById('usb-context-warning');
+  if (!warningEl) return;
+
+  const insecureContext = !window.isSecureContext;
+  warningEl.style.display = insecureContext ? 'block' : 'none';
+
+  if (!insecureContext) return;
+
+  // Nút "Open Beta UI" luôn hiện (kể cả khi client đang offline) — chỉ cảnh báo là thêm/bớt.
+  const offline = !otaClientOnline;
+  const betaNoteEl = document.getElementById('beta-ui-note');
+  const noNetEl = document.getElementById('usb-nonet-warning');
+  if (betaNoteEl) betaNoteEl.style.display = 'block';
+  if (noNetEl) noNetEl.style.display = offline ? 'block' : 'none';
+
+  const targetUrl = getPublicUsbUpdateUrl();
+  const urlEl = document.getElementById('beta-ui-target-url');
+  if (urlEl) urlEl.textContent = targetUrl;
+
+  const openBtn = document.getElementById('open-beta-ui-page');
+  if (openBtn) {
+    openBtn.onclick = () => openBetaUiTab();
+  }
+}
+
+function wireUpdateModalInteractions(catalog, options = {}) {
+  const forceUsb = Boolean(options.forceUsb);
+  const comCheckbox = document.getElementById('update-via-usb');            // null trên điện thoại
+  const localWifiCheckbox = document.getElementById('update-local-wifi-check');
+  const localWifiOptions = document.getElementById('local-wifi-options');
+  const usbOptions = document.getElementById('usb-upload-options');
+  const localCheckbox = document.getElementById('update-local-offline');
+  const localOptions = document.getElementById('local-update-options');
+  const onlineList = document.getElementById('online-version-list');
+  const extrasBlock = document.getElementById('usb-upload-extra-options');
+  const pickBtn = document.getElementById('pick-local-update-files');
+  const fileInput = document.getElementById('local-update-files');
+  const localWifiPickBtn = document.getElementById('pick-local-wifi-files');
+  const localWifiFileInput = document.getElementById('local-wifi-files');
+  const primaryActionBtn = document.getElementById('update-primary-action-btn');
+  const versionInputs = Array.from(document.querySelectorAll('input[name="update-version"]'));
+  const bootloaderCheckbox = document.getElementById('include-bootloader');
+  const partitionsCheckbox = document.getElementById('include-partitions');
+  if (!usbOptions || !onlineList || !primaryActionBtn) return;
+
+  // Mobile/tablet trên host HTTPS: không OTA được (backend chưa nối) và cũng không COM được
+  // (Web Serial bị chặn) ⇒ khoá START UPDATE để không bấm vào rồi nhận lỗi khó hiểu.
+  if (isMobileClient() && window.isSecureContext && forceUsb) {
+    primaryActionBtn.disabled = true;
+    primaryActionBtn.style.opacity = '0.55';
+    primaryActionBtn.style.cursor = 'not-allowed';
+  }
+
+  // Chế độ cài: 2 checkbox loại trừ nhau, cho phép cả hai đều trống (= cài version đang chọn)
+  const getUpdateMode = () => getUpdateModeChoice();
+
+  const refreshPrimaryActionLabel = async () => {
+    const mode = getUpdateMode();
+    primaryActionBtn.textContent = 'START UPDATE';
+    primaryActionBtn.style.display = mode === 'com' ? 'none' : '';
+    if (mode === 'com') {
+      await renderUsbDashboardInModal(catalog);
+    } else {
+      clearUsbDashboardHost(document.getElementById('update-modal-usb-host'));
+    }
+  };
+
+  const applyUpdateMode = async () => {
+    const mode = getUpdateMode();
+    const localOfflineChecked = Boolean(document.getElementById('update-local-wifi-offline')?.checked);
+    const comLocalChecked = Boolean(document.getElementById('update-local-offline')?.checked);
+    usbOptions.classList.toggle('hidden', mode !== 'com');
+    usbOptions.style.display = mode === 'com' ? 'grid' : 'none';
+    if (localWifiOptions) {
+      // "Local update" chỉ hiện khi đã tick checkbox con (chọn .bin có sẵn trên máy).
+      const showLocalPicker = mode === 'local' && localOfflineChecked;
+      localWifiOptions.classList.toggle('hidden', !showLocalPicker);
+      localWifiOptions.style.display = showLocalPicker ? 'grid' : 'none';
+    }
+    // Hàng "Local update (only firmware.bin or spiffs.bin)" chỉ hiện khi checkbox Update via OTA được tick.
+    const otaLocalRow = document.getElementById('ota-local-checkbox-row');
+    if (otaLocalRow) otaLocalRow.style.display = mode === 'local' ? 'flex' : 'none';
+    // Ghi chú "OTA is downloaded by this browser..." chỉ hiện khi tick Update via OTA.
+    const otaTransportNote = document.getElementById('ota-transport-note');
+    if (otaTransportNote) otaTransportNote.style.display = mode === 'local' ? 'block' : 'none';
+    // Ghi chú "Backend is not connected..." chỉ hiện khi tick Update via COM port (mobile không có ô COM nên luôn hiện).
+    const usbForcedNote = document.getElementById('usb-forced-note');
+    if (usbForcedNote) usbForcedNote.style.display = (mode === 'com' || isMobileClient()) ? 'block' : 'none';
+    // Bảng chọn version chỉ ẩn khi tick "Local update" của mode đang chọn (dùng file .bin có sẵn trên máy).
+    const hideVersionList = (mode === 'com' && comLocalChecked) || (mode === 'local' && localOfflineChecked);
+    onlineList.style.display = hideVersionList ? 'none' : 'block';
+    if (mode === 'com') {
+      refreshUsbContextWarning();
+      // Preload web component early to keep CONNECT flow snappy.
+      ensureEspWebToolsLoaded().catch((error) => console.warn('ESP Web Tools preload failed:', error));
+    }
+    await refreshPrimaryActionLabel();
+  };
+
+  // Mobile/tablet: KHÔNG tick sẵn COM (không có ô COM để hiện + Web Serial bị chặn trên máy di động)
+  // ⇒ mode = 'none', USB Flash Dashboard không được render.
+  if (comCheckbox) {
+    if (forceUsb && !isMobileClient()) comCheckbox.checked = true;
+    comCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      if (comCheckbox.checked) {
+        if (localWifiCheckbox) localWifiCheckbox.checked = false;   // loại trừ nhau
+        // KHÔNG tự mở tab Beta UI nữa — người dùng bấm nút "Open Beta UI" trong khối COM khi cần.
+        applyUpdateMode();
+        return;
+      }
+      if (forceUsb) {
+        comCheckbox.checked = true;
+        showUpdateModalError('Backend is not connected. USB Serial update is required, so this option cannot be turned off right now.');
+        return;
+      }
+      applyUpdateMode();
+    });
+  }
+
+  if (localWifiCheckbox) {
+    localWifiCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      if (localWifiCheckbox.checked && comCheckbox) comCheckbox.checked = false;  // loại trừ nhau
+      applyUpdateMode();
+    });
+  }
+
+  // Checkbox con trong mode OTA: tick ⇒ ẩn bảng version, hiện nút chọn file .bin local.
+  const localWifiOfflineCheckbox = document.getElementById('update-local-wifi-offline');
+  if (localWifiOfflineCheckbox) {
+    localWifiOfflineCheckbox.addEventListener('change', () => {
+      clearUpdateModalError();
+      applyUpdateMode();
+    });
+  }
+
+  // Ô "Local update (use offline .bin files)" chỉ được render khi chạy ở secure context (HTTPS).
+  if (localCheckbox && localOptions) {
+    localCheckbox.addEventListener('change', (e) => {
+      clearUpdateModalError();
+      if (e.target.checked) {
+        localOptions.classList.remove('hidden');
+        localOptions.style.display = 'grid';
+        // Hide bootloader/partitions extras — local mode manages its own files
+        if (extrasBlock) extrasBlock.style.display = 'none';
+      } else {
+        localOptions.classList.add('hidden');
+        localOptions.style.display = 'none';
+        // Restore extras block if it has content
+        if (extrasBlock && extrasBlock.children.length > 0) extrasBlock.style.display = 'grid';
+      }
+      // Áp lại mode để ẩn/hiện bảng chọn version theo checkbox "Local update".
+      applyUpdateMode();
+    });
+  }
+
+  if (pickBtn && fileInput) {
+    pickBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', async () => {
+      renderLocalUpdateFileList();
+      await refreshPrimaryActionLabel();
+    });
+  }
+
+  // Chế độ "Update via OTA": chọn file .bin trên máy để đẩy sang thiết bị qua Wi-Fi (offline)
+  if (localWifiPickBtn && localWifiFileInput) {
+    localWifiPickBtn.addEventListener('click', () => localWifiFileInput.click());
+    localWifiFileInput.addEventListener('change', () => renderLocalWifiFileList());
+  }
+
+  versionInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+      refreshPrimaryActionLabel();
+    });
+  });
+
+  if (bootloaderCheckbox) {
+    bootloaderCheckbox.addEventListener('change', () => {
+      refreshPrimaryActionLabel();
+    });
+  }
+
+  if (partitionsCheckbox) {
+    partitionsCheckbox.addEventListener('change', () => {
+      refreshPrimaryActionLabel();
+    });
+  }
+
+  applyUpdateMode();
+}
+
+function isGroupAlreadyInstalled(group) {
+  const checks = [];
+  if (group.firmware) checks.push(group.version === currentFwVer);
+  if (group.spiffs) checks.push(group.version === currentSpiffsVer);
+  return checks.length > 0 && checks.every(Boolean);
+}
+
+function createOtaStepsFromGroup(group) {
+  const steps = [];
+  if (group.firmware) steps.push({ type: 'firmware', url: group.firmware.url, filename: group.firmware.name, rebootAfter: false });
+  if (group.spiffs) steps.push({ type: 'spiffs', url: group.spiffs.url, filename: group.spiffs.name, rebootAfter: false });
+  if (steps.length) steps[steps.length - 1].rebootAfter = true;
+  return steps;
+}
+
+function hasWebSerialSupport() {
+  return Boolean(window.isSecureContext && 'serial' in navigator);
+}
+
+async function ensureEspWebToolsLoaded() {
+  if (customElements.get('esp-web-install-button')) return;
+  if (!espWebToolsLoader) {
+    espWebToolsLoader = import(ESP_WEB_TOOLS_MODULE_URL);
+  }
+  await espWebToolsLoader;
+}
+
+function buildEspWebToolsParts(group, catalog) {
+  const parts = [];
+
+  if (document.getElementById('include-bootloader')?.checked && catalog.extras.bootloader) {
+    parts.push({ path: catalog.extras.bootloader.download_url, offset: FLASH_OFFSETS.bootloader });
+  }
+  if (document.getElementById('include-partitions')?.checked && catalog.extras.partitions) {
+    parts.push({ path: catalog.extras.partitions.download_url, offset: FLASH_OFFSETS.partitions });
+  }
+  if (group.firmware) {
+    parts.push({ path: group.firmware.url, offset: FLASH_OFFSETS.firmware });
+  }
+  if (group.spiffs) {
+    parts.push({ path: group.spiffs.url, offset: FLASH_OFFSETS.spiffs });
+  }
+
+  return parts;
+}
+
+function createEspWebToolsManifestUrl(group, catalog, localParts = null) {
+  const parts = localParts || buildEspWebToolsParts(group, catalog);
+  if (!parts.length) return null;
+
+  const manifest = {
+    name: `MLAstro RPA ${group?.version || 'local'}`,
+    version: group?.version || 'local',
+    new_install_prompt_erase: true,
+    // Firmware MLAstro KHÔNG hỗ trợ Improv Serial (giao thức provision Wi-Fi). Nếu để mặc định,
+    // sau khi flash xong ESP Web Tools mở lại cổng COM để "initialize Improv", không thấy thiết bị
+    // trong 1 s ⇒ hiện hộp thoại lỗi "Serial port is not ready..." dù flash đã THÀNH CÔNG.
+    // Đặt 0 ⇒ bỏ hẳn bước Improv, hộp thoại hiện thẳng "Installation complete!".
+    new_install_improv_wait_time: 0,
+    builds: [
+      {
+        chipFamily: 'ESP32',
+        parts: parts.map((p) => ({ path: p.path, offset: p.offset })),
+      },
+    ],
+  };
+
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+  return URL.createObjectURL(blob);
+}
+
+function hasSelectedUsbExtra(catalog) {
+  const bootSelected = Boolean(document.getElementById('include-bootloader')?.checked && catalog.extras.bootloader);
+  const partSelected = Boolean(document.getElementById('include-partitions')?.checked && catalog.extras.partitions);
+  return bootSelected || partSelected;
+}
+
+function releaseActiveUsbArtifacts() {
+  if (activeUsbManifestUrl) {
+    URL.revokeObjectURL(activeUsbManifestUrl);
+    activeUsbManifestUrl = null;
+  }
+  if (Array.isArray(activeUsbLocalBlobUrls)) {
+    activeUsbLocalBlobUrls.forEach((url) => {
+      if (url) URL.revokeObjectURL(url);
+    });
+  }
+  activeUsbLocalBlobUrls = [];
+}
+
+function clearUsbDashboardHost(host) {
+  if (!host) return;
+  host.innerHTML = '';
+  host.classList.add('hidden');
+  releaseActiveUsbArtifacts();
+}
+
+async function renderUsbDashboardInModal(catalog) {
+  const host = document.getElementById('update-modal-usb-host');
+  const selectedMode = getUpdateModeChoice();
+  const localCheckbox = document.getElementById('update-local-offline');
+  // Mobile/tablet: không có ô COM nào để bật (và Web Serial bị chặn) ⇒ không hiện USB Flash Dashboard.
+  if (!host || selectedMode !== 'com' || isMobileClient()) {
+    clearUsbDashboardHost(host);
+    return;
+  }
+
+  releaseActiveUsbArtifacts();
+  host.classList.remove('hidden');
+
+  // Client không có internet ⇒ ESP Web Tools (tải từ unpkg) và trang Beta UI đều không dùng được
+  if (!otaClientOnline) {
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${MSG_NO_INTERNET} Use <b>Update via OTA</b> (Wi-Fi), or connect this device to the internet.</div></div>`;
+    return;
+  }
+
+  if (!hasWebSerialSupport()) {
+    // Phân biệt 2 nguyên nhân: (a) máy/trình duyệt không có USB Serial (mobile/tablet/Firefox…)
+    // ⇒ cần PC + Chrome/Edge + driver CP2102; (b) trang đang chạy HTTP (insecure context) ⇒ Web
+    // Serial bị chặn, phải mở Beta UI qua HTTPS.
+    const help = noWebSerialDevice ? MSG_NO_USB_SERIAL : MSG_INSECURE_PAGE;
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">${help}</div></div>`;
+    return;
+  }
+
+  let selectedGroup = null;
+  let localParts = null;
+  let packageLabel = 'selected package';
+  const localMode = Boolean(localCheckbox?.checked);
+
+  if (localMode) {
+    localParts = getSelectedLocalParts();
+    if (!localParts.length) {
+      host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Select local .bin files to enable CONNECT.</div></div>';
+      return;
+    }
+    activeUsbLocalBlobUrls = localParts.map((part) => part._blobUrl).filter(Boolean);
+    packageLabel = 'local files';
+  } else {
+    const selectedVersion = document.querySelector('input[name="update-version"]:checked')?.value;
+    selectedGroup = catalog.versions.find((group) => group.version === selectedVersion);
+    if (!selectedGroup) {
+      host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Select a version to enable CONNECT.</div></div>';
+      return;
+    }
+    packageLabel = `version ${selectedGroup.version}`;
+  }
+
+  try {
+    await ensureEspWebToolsLoaded();
+  } catch (error) {
+    host.innerHTML = `<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">Cannot load ESP Web Tools: ${error.message || error}</div></div>`;
+    return;
+  }
+
+  const manifestUrl = createEspWebToolsManifestUrl(selectedGroup, catalog, localParts);
+  if (!manifestUrl) {
+    host.innerHTML = '<div class="usb-flash-card"><div class="usb-flash-title">USB Flash Dashboard</div><div class="usb-flash-help">No package selected to upload via USB.</div></div>';
+    return;
+  }
+  activeUsbManifestUrl = manifestUrl;
+
+  host.innerHTML = `
+    <div class="usb-flash-card">
+      <div class="usb-flash-title">USB Flash Dashboard</div>
+      <div class="usb-flash-help">Selected package: <strong>${packageLabel}</strong>. Click CONNECT below to choose COM and flash.</div>
+      <esp-web-install-button id="update-modal-esp-web-install-btn" manifest="${manifestUrl}"></esp-web-install-button>
+    </div>`;
+
+  const installBtn = document.getElementById('update-modal-esp-web-install-btn');
+  if (!installBtn) return;
+
+  installBtn.addEventListener('click', () => {
+    otaMode = 'usb';
+    hideOtaProgressUI();
+    hideOtaInstallOverlay();
+    if (modal) {
+      // Keep the session alive but visually dismiss the chooser modal so it doesn't block ESP Web Tools UI.
+      setTimeout(() => {
+        modal.classList.add('modal-detached');
+      }, 0);
+    }
+  });
+}
+
+function startOtaPlan(version, steps, options = {}) {
+  // ⚠️ Chống nhiều plan chạy SONG SONG trong cùng tab: mỗi lần bấm START UPDATE lại tạo một plan mới
+  // (sid khác nhau) ⇒ các plan gửi khối 0 với sid khác nhau, thiết bị từ chối luồng này để bảo vệ
+  // luồng kia ⇒ không luồng nào cài được và hiện "Another upload is already in progress" (bug thật
+  // 2026-09-19). Đang có plan chạy thì bỏ qua, báo rõ cho người dùng.
+  if (otaPlan) {
+    showModal('Update already running', 'An update is already running in this tab. Wait for it to finish (or reload the page to cancel it).', [{ text: 'OK' }]);
+    return;
+  }
+  otaMode = 'ota';
+  // useBrowserUpload = browser tải .bin rồi đẩy từng khối vào ESP. CHỈ dùng khi ESP32 KHÔNG có
+  // internet (espOtaOnline == false) — mặc định ESP tự tải qua STA (ưu tiên, user chốt 2026-09-19).
+  // forceBrowserUpload: file .bin nằm trên máy client (blob URL) ⇒ ESP không tải được, buộc đi đường browser.
+  otaPlan = { version, steps, useBrowserUpload: options.forceBrowserUpload ? true : !espOtaOnline };
+  otaCurrentStepIndex = -1;
+  startNextPlannedOtaStep();
+}
+
+function startNextPlannedOtaStep() {
+  if (!otaPlan || otaMode !== 'ota') return;
+  otaCurrentStepIndex += 1;
+  const step = otaPlan.steps[otaCurrentStepIndex];
+  if (!step) {
+    otaPlan = null;
+    otaCurrentStepIndex = -1;
+    return;
+  }
+
+  const stepLabel = `Installing ${step.type} (${otaCurrentStepIndex + 1}/${otaPlan.steps.length})...`;
+
+  // Cách A: trình duyệt (client) tải .bin hộ rồi POST từng khối vào ESP ⇒ ESP không cần internet.
+  if (otaPlan.useBrowserUpload) {
+    showOtaInstallOverlay(`Downloading ${step.type}...`, 0);
+    runBrowserOtaStep(step, stepLabel);
+    return;
+  }
+
+  showOtaInstallOverlay(stepLabel, 0);
+  sendCommand('otaUpdate', { type: step.type, url: step.url, reboot_after: step.rebootAfter });
+}
+
+// Cách A: tải .bin bằng internet của CHÍNH client rồi đẩy sang ESP qua POST /api/ota/upload.
+// Tiến độ trong lúc gửi lấy từ phía browser; mốc 100% và việc chuyển bước vẫn do ESP báo qua
+// WebSocket (ota_progress / ota_done) để dùng chung luồng UI với cách ESP tự tải.
+//
+// ⚠️ Điện thoại: Chrome tạm dừng JS khi chuyển app / tắt màn hình ⇒ vài khối bị gửi chậm hoặc
+// request bị treo. Firmware có watchdog và sẽ huỷ phiên, nên mỗi lần hỏng ta GỬI LẠI TỪ KHỐI 0
+// (firmware tự mở phiên mới khi nhận khối 0) — tối đa BROWSER_OTA_MAX_ATTEMPTS lần.
+const BROWSER_OTA_MAX_ATTEMPTS = 3;
+const BROWSER_OTA_BLOCK_TIMEOUT_MS = 30000;
+
+async function runBrowserOtaStep(step, stepLabel) {
+  let buffer;
+  try {
+    const response = await fetch(step.url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
+    buffer = await response.arrayBuffer(); // tải TRỌN file vào RAM trước khi đẩy sang ESP
+  } catch (error) {
+    failBrowserOtaStep(`${step.type}: ${error.message}`);
+    return;
+  }
+
+  const total = buffer.byteLength;
+  if (!total) {
+    failBrowserOtaStep(`${step.type}: the downloaded file is empty`);
+    return;
+  }
+
+  // sid: mỗi LUỒNG upload có 1 id riêng, dùng cho MỌI khối + mọi lần retry của bước này. Thiết bị dùng
+  // nó để phân biệt "client gửi lại phiên của chính mình" (được nhận) với "một luồng upload thứ hai"
+  // (bị từ chối) — nếu không, luồng thứ hai sẽ cướp phiên của luồng đang chạy và gây lỗi
+  // "Wrong Magic Byte" / isRunning=0 (bug thật 2026-09-19).
+  const otaSid = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(-10);
+  let firstFailure = null; // lý do GỐC — các lần retry có thể báo lỗi phụ ("first block missing")
+
+  for (let attempt = 1; attempt <= BROWSER_OTA_MAX_ATTEMPTS; attempt++) {
+    let failure = null;
+
+    for (let offset = 0; offset < total; offset += BROWSER_OTA_CHUNK_SIZE) {
+      const slice = buffer.slice(offset, Math.min(offset + BROWSER_OTA_CHUNK_SIZE, total));
+      const url = `/api/ota/upload?type=${encodeURIComponent(step.type)}&off=${offset}&size=${total}&reboot=${step.rebootAfter ? 1 : 0}&sid=${otaSid}`;
+
+      try {
+        // Timeout mỗi khối: request bị treo (Wi-Fi/AP chập chờn) phải thoát ra để thử lại,
+        // không được để treo vô hạn khiến ESP tự huỷ phiên vì watchdog.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), BROWSER_OTA_BLOCK_TIMEOUT_MS);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream', 'X-MLAstro-OTA': '1' },
+            body: slice,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+
+        if (!response.ok) {
+          let message = `device rejected the block (HTTP ${response.status})`;
+          try {
+            const detail = await response.json();
+            if (detail && detail.message) message = detail.message;
+          } catch (ignored) {
+            // body không phải JSON — giữ thông báo mặc định
+          }
+          throw new Error(message);
+        }
+      } catch (error) {
+        failure = error.name === 'AbortError'
+          ? `no answer for the block at ${offset} (timeout ${BROWSER_OTA_BLOCK_TIMEOUT_MS / 1000}s)`
+          : error.message;
+        break;
+      }
+
+      const percent = Math.round(((offset + slice.byteLength) * 100) / total);
+      updateOtaInstallOverlay(percent, stepLabel);
+    }
+
+    if (!failure) return; // bước này xong
+    if (!firstFailure) firstFailure = failure;
+
+    if (attempt < BROWSER_OTA_MAX_ATTEMPTS) {
+      showOtaInstallOverlay(`Retrying ${step.type} (${attempt + 1}/${BROWSER_OTA_MAX_ATTEMPTS})...`, 0);
+      continue;
+    }
+
+    failBrowserOtaStep(`${step.type}: ${firstFailure} (after ${attempt} attempts)`);
+    return;
+  }
+}
+
+function failBrowserOtaStep(reason) {
+  otaPlan = null;
+  otaCurrentStepIndex = -1;
+  hideOtaInstallOverlay();
+  showModal('OTA Failed', `${reason}<br><br>Keep this tab open during the whole update. You can also update over USB Serial (tick <b>Update via COM port</b> in the update window).`, [{ text: 'OK' }]);
+}
+
+// ===== NEW-FIRMWARE BADGE (✨ cạnh số version ở header) =====
+// Biết "có bản firmware mới hơn" NGAY khi mở/refresh mà KHÔNG làm nặng trang.
+// Chỉ CLIENT tự kiểm tra (user chốt 2026-09-23). Lý do: máy có thể chạy 24/7 nên firmware KHÔNG
+// dò lúc boot (sẽ bỏ lỡ bản mới) — kiểm tra mỗi lần người dùng mở Web UI là hợp lý nhất:
+//   1) Kết quả lần trước ở localStorage ⇒ hiện ✨ TỨC THÌ, không chờ mạng.
+//   2) Rồi LUÔN dò lại ở chế độ nền (chỉ khi trang đã rảnh) ⇒ bản vừa phát hành hiện ra ngay ở lần
+//      mở Web UI kế tiếp. (Trước đây cache < 30 phút thì BỎ QUA dò nên tab đang mở/bản vừa release
+//      không thấy ✨ cho tới khi cache hết hạn.)
+//   3) Không lấy được ⇒ giữ nguyên kết quả cache (chỉ ghi log), không nháy UI.
+// Mọi lần dò đều ghi vào bảng log trên web: cả timeout lẫn thời gian + dung lượng nhận được.
+// Bấm vào số version (hoặc ✨) ⇒ mở lại trang với `?updates=1` để tự bật modal "Available Updates".
+const FW_CHECK_CACHE_KEY = 'fwUpdateCheck';
+const FW_CHECK_TTL_MS = 6 * 60 * 60 * 1000;    // cache CHỈ để hiện ✨ tức thì (tối đa 6 giờ)
+const FW_CLIENT_FETCH_TIMEOUT_MS = 1000;       // tải meta.json (~6 KB): quá 1 s là bỏ qua ngay,
+                                               // để trang chạy tiếp bình thường (không chờ mạng)
+
+let fwNewestVersion = null;
+let fwCheckStarted = false;
+
+function readFwCheckCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FW_CHECK_CACHE_KEY) || 'null');
+    if (!parsed || !parsed.newest || !parsed.ts) return null;
+    if (Date.now() - Number(parsed.ts) > FW_CHECK_TTL_MS) return null;
+    return parsed;
+  } catch (error) {
+    return null; // localStorage bị chặn / dữ liệu hỏng ⇒ coi như chưa có cache
+  }
+}
+
+function writeFwCheckCache(newest) {
+  try {
+    localStorage.setItem(FW_CHECK_CACHE_KEY, JSON.stringify({ newest, ts: Date.now() }));
+  } catch (error) {
+    // Hết quota / chế độ riêng tư ⇒ chỉ mất phần cache, không ảnh hưởng gì khác
+  }
+}
+
+function getRunningFwVersion() {
+  // Ưu tiên số firmware do thiết bị gửi qua WebSocket; chưa có thì lấy từ header (bản đang chạy UI).
+  if (currentFwVer && currentFwVer !== 'unknown') return currentFwVer;
+  const el = document.getElementById('display-fw-ver');
+  return el ? extractVersion(el.textContent) : 'unknown';
+}
+
+// Vẽ lại badge theo version đang chạy + version mới nhất đã biết (hàm thuần, không gọi mạng).
+function refreshFwUpdateBadge() {
+  const running = getRunningFwVersion();
+  const hasNewer = Boolean(fwNewestVersion)
+    && running !== 'unknown'
+    && compareVersionsDesc(running, fwNewestVersion) > 0; // > 0 ⇒ version mới nhất > bản đang chạy
+
+  const badge = document.getElementById('fw-new-badge');
+  if (badge) badge.classList.toggle('hidden', !hasNewer);
+
+  const fwEl = document.getElementById('display-fw-ver');
+  if (fwEl) {
+    fwEl.title = hasNewer
+      ? `New firmware ${fwNewestVersion} available — click to update`
+      : 'Click to check for updates';
+  }
+}
+
+// Dùng CHUNG cơ chế "kèm cờ ?updates=1 để trang tự mở modal update" (khối autoOpenUpdates cuối file)
+// cho CẢ 2 đường — chỉ khác LINK:
+//   · trang thiết bị (HTTP)   : mở lại chính trang đang xem ⇒ OTA được vì có backend
+//   · Beta UI (HTTPS, GitHub) : getPublicUsbUpdateUrl()      ⇒ để flash bằng COM port/Web Serial
+function buildUpdatesModalUrl(baseUrl) {
+  const sep = String(baseUrl).indexOf('?') >= 0 ? '&' : '?';
+  return baseUrl + sep + 'updates=1';
+}
+
+// Bấm số version / ✨ ⇒ mở modal update NGAY trên trang đang xem (link = trang hiện tại, khác link Beta UI).
+function openUpdateModalPage() {
+  window.location.href = buildUpdatesModalUrl(window.location.pathname || '/');
+}
+
+// Client tự dò meta.json — CHỈ tải meta.json (~6 KB) để nhẹ; đo byte thực nhận để báo cáo trong log.
+// (~6 KB) để nhẹ; đo luôn số byte thực nhận để báo cáo trong log.
+async function fetchFwNewestVersionFromClient(timeoutMs) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let text = '';
+  let bytes = 0;
+  try {
+    const response = await fetch(GITHUB_RAW_BASE + 'meta.json', { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return { ok: false, ms: Date.now() - startedAt, bytes, reason: `HTTP ${response.status}` };
+    text = await response.text();
+    bytes = text.length; // chỉ để báo cáo dung lượng trong log
+  } catch (error) {
+    return {
+      ok: false,
+      ms: Date.now() - startedAt,
+      bytes,
+      reason: error.name === 'AbortError' ? `timeout ${timeoutMs} ms` : error.message,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+  const ms = Date.now() - startedAt;
+
+  let meta = null;
+  try {
+    meta = JSON.parse(text);
+  } catch (error) {
+    return { ok: false, ms, bytes, reason: 'bad JSON' };
+  }
+  if (!meta || typeof meta !== 'object' || !Object.keys(meta).length) {
+    return { ok: false, ms, bytes, reason: lastFetchError || 'no data' };
+  }
+
+  const versions = buildUpdateCatalog(null, meta).versions
+    .filter((group) => group.firmware)
+    .map((group) => group.version)
+    .sort(compareVersionsDesc); // mới nhất lên đầu
+  if (!versions.length) return { ok: false, ms, bytes, reason: 'no firmware entry' };
+  return { ok: true, ms, bytes, version: versions[0] };
+}
+
+// Tag log nguồn version: đọc từ cache hay từ lần dò mới qua mạng
+const FW_CHECK_TAG_CACHE = '[FW-CHECK] [cache]';
+const FW_CHECK_TAG_FETCH = '[FW-CHECK] [New fetch]';
+
+// CHỈ ghi log khi version mới hơn bản đang chạy; bằng/nhỏ hơn ⇒ không log gì cả.
+function logFwNewVersionIfAny(version, tag) {
+  const running = getRunningFwVersion();
+  if (!version || running === 'unknown' || compareVersionsDesc(running, version) <= 0) return;
+  appendLog(`${tag} New version detected "firmware ${version}"`);
+}
+
+// Lưu + hiện ✨ + log (nếu có bản mới hơn): version lấy từ lần dò mới ⇒ lưu cache cho lần sau
+function applyFwNewestVersion(version) {
+  fwNewestVersion = version;
+  writeFwCheckCache(version);
+  refreshFwUpdateBadge();
+  logFwNewVersionIfAny(version, FW_CHECK_TAG_FETCH);
+}
+
+// Bước dò thật sự: CLIENT tự tải meta.json (~6 KB) — chỉ chạy khi trang đã rảnh
+async function runFwUpdateCheck() {
+  const client = await fetchFwNewestVersionFromClient(FW_CLIENT_FETCH_TIMEOUT_MS);
+  if (client.ok) {
+    applyFwNewestVersion(client.version);
+  } else {
+    appendLog(`${FW_CHECK_TAG_FETCH} failed (${client.reason}) - badge from CACHE only (if any)`);
+  }
+}
+
+// Chạy 1 lần mỗi lần load: hiện kết quả cache trước, dò lại SAU khi trang rảnh.
+function startFwUpdateCheck() {
+  if (fwCheckStarted) return;
+  fwCheckStarted = true;
+
+  const cached = readFwCheckCache();
+  if (cached) {
+    fwNewestVersion = cached.newest; // ✨ hiện ngay, không chờ mạng
+    refreshFwUpdateBadge();
+    // Chỉ log khi cache cho thấy có bản mới hơn bản đang chạy (bằng/nhỏ hơn ⇒ im lặng)
+    logFwNewVersionIfAny(cached.newest, FW_CHECK_TAG_CACHE);
+  }
+
+  const runWhenIdle = () => setTimeout(runFwUpdateCheck, 800);
+
+  // requestIdleCallback: chỉ chạy khi trình duyệt rảnh ⇒ không chen vào lúc vẽ UI/handshake WS.
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(runWhenIdle, { timeout: 3000 });
+  } else {
+    runWhenIdle(); // Safari cũ: chấp nhận chờ 0.8 s sau khi load
+  }
+}
+
+(function bindFwVersionClick() {
+  ['display-fw-ver', 'fw-new-badge'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', openUpdateModalPage);
+  });
+})();
+
+async function checkAllUpdates() {
+  const repoOwner = 'MLAstroRPA';
+  const repoName = 'Update';
+  const metaUrl = `https://raw.githubusercontent.com/${repoOwner}/${repoName}/main/meta.json`;
+
+  showModal('Checking Updates', `<div class="wifi-scanning">Fetching firmware list...</div>`);
+
+  try {
+    const backendAvailable = await waitForBackendStatus(1200);
+
+    // Danh sách version lấy từ meta.json trên raw.githubusercontent.com (KHÔNG dùng api.github.com
+    // vì endpoint đó hay trả 403 rate-limit dù máy vẫn có internet).
+    // ƯU TIÊN: nhờ ESP32 tải trước (ESP có internet qua STA ⇒ ESP cũng sẽ tự tải .bin, đường ổn định
+    // nhất, không phụ thuộc điện thoại/tab). Chỉ khi ESP không có internet mới dùng internet của client.
+    let meta = {};
+    const proxiedMeta = await fetchJsonWithTimeout('/api/ota/catalog?what=meta', 12000);
+    espOtaOnline = Boolean(proxiedMeta && typeof proxiedMeta === 'object' && Object.keys(proxiedMeta).length);
+
+    if (espOtaOnline) {
+      meta = proxiedMeta;
+      // ESP tự lo được ⇒ biết ngay danh sách. Còn client có internet hay không thì dò nền (không chặn
+      // UI) vì vài chỗ khác (Beta UI / USB Serial) cần biết browser có mạng.
+      fetchJsonWithTimeout(metaUrl, 6000).then((direct) => {
+        otaClientOnline = Boolean(direct && typeof direct === 'object' && Object.keys(direct).length);
+        if (typeof refreshUsbContextWarning === 'function') refreshUsbContextWarning();
+      }).catch(() => { otaClientOnline = false; });
+    } else {
+      // ESP không có internet ⇒ fallback sang internet của client (browser tải .bin rồi đẩy sang ESP).
+      const directMeta = await fetchJsonWithTimeout(metaUrl, 6000);
+      otaClientOnline = Boolean(directMeta && typeof directMeta === 'object' && Object.keys(directMeta).length);
+      if (!otaClientOnline) {
+        // Cả hai phía đều không lấy được danh sách ⇒ nhắc người dùng cấp internet cho 1 trong 2.
+        throw new Error(
+          'Cannot fetch firmware from internet.<br><br>' +
+          'Please connect <b>MLAstroRPA</b> (Wi-Fi STA) or <b>this device (PC / phone)</b> to the internet, then try again.' +
+          (lastFetchError ? `<br><br><span style="color:var(--text-muted); font-size:12px;">ESP32: ${lastFetchError}</span>` : '') +
+          '<br><br>You can still update offline: tick <b>Update via OTA</b> below and pick the firmware / spiffs file you already downloaded (it is sent to the device over Wi-Fi).'
+        );
+      }
+      meta = directMeta;
+    }
+
+    const catalog = buildUpdateCatalog(null, meta);
+    if (!catalog.versions.length) {
+      showModal('No Updates', 'No versioned firmware/spiffs packages were found in the repository.');
+      return;
+    }
+
+    const forceUsb = !backendAvailable;
+
+    showModal('Available Updates', buildUpdateModalMarkup(catalog, { forceUsb, espOnline: espOtaOnline, offlineClient: !otaClientOnline }), [
+      {
+        id: 'update-primary-action-btn',
+        text: 'START UPDATE',
+        class: 'btn-danger',
+        closeOnClick: false,
+        callback: async () => {
+          clearUpdateModalError();
+          const updateMode = getUpdateModeChoice();
+          // Radio luôn chọn sẵn 1 mode; 'none' chỉ xảy ra khi bộ chọn bị ẩn (mobile/tablet) ⇒ chặn lại.
+          if (updateMode === 'none') {
+            showUpdateModalError('Select Update via OTA or Update via COM port before starting.');
+            return;
+          }
+          const useUsb = updateMode === 'com';
+          const localMode = useUsb && Boolean(document.getElementById('update-local-offline')?.checked);
+
+          // Mode OTA + tick "Local update": đẩy file .bin có sẵn trên máy vào thiết bị qua Wi-Fi.
+          // Không tick: OTA theo version đang chọn trong danh sách.
+          if (updateMode === 'local' && document.getElementById('update-local-wifi-offline')?.checked) {
+            const pickedLocalFiles = collectLocalUpdateFiles('local-wifi-files');
+            if (!pickedLocalFiles || !(pickedLocalFiles.firmware || pickedLocalFiles.spiffs)) {
+              showUpdateModalError('Select local .bin files first (firmware.bin / spiffs.bin).');
+              return;
+            }
+            startLocalWifiUpdate((message) => showUpdateModalError(message));
+            return;
+          }
+
+          if (forceUsb && !useUsb) {
+            showUpdateModalError('Device is not connected (WebSocket is down). Reload this page and try again.');
+            return;
+          }
+
+          if (useUsb) {
+            showUpdateModalError(localMode
+              ? 'Use the USB Flash Dashboard shown in this modal to click CONNECT and flash the selected local files.'
+              : 'Use the USB Flash Dashboard shown in this modal to click CONNECT and flash the selected package.');
+            return;
+          }
+
+          const selectedVersion = document.querySelector('input[name="update-version"]:checked')?.value;
+          const selectedGroup = catalog.versions.find((group) => group.version === selectedVersion);
+          if (!selectedGroup) {
+            showUpdateModalError('Please select a version.');
+            return;
+          }
+
+          // Không bên nào có internet ⇒ không thể OTA (còn USB Serial / file .bin có sẵn trên máy).
+          if (!espOtaOnline && !otaClientOnline) {
+            showUpdateModalError('Neither MLAstroRPA (ESP32) nor this device (PC/phone) has internet. Connect one of them, or use "Update via COM port" / a local .bin file.');
+            return;
+          }
+
+          const steps = createOtaStepsFromGroup(selectedGroup);
+          if (!steps.length) {
+            showUpdateModalError('No OTA package was found for the selected version.');
+            return;
+          }
+
+          // CÙNG VERSION đang chạy: không chặn cứng nữa mà cho phép CÀI ĐÈ (overwrite) sau khi xác nhận
+          // (user yêu cầu 2026-09-17: cần OTA/flash lại đúng version đang có, vd sau khi build lại /
+          // nghi firmware lỗi).
+          if (isGroupAlreadyInstalled(selectedGroup)) {
+            hideModal();
+            showModal(
+              'Reinstall Same Version',
+              `Version <b>${selectedGroup.version}</b> is already active for all selected packages on the device.<br><br>` +
+              'Reinstall (overwrite) the same version anyway?',
+              [
+                {
+                  text: 'Overwrite',
+                  class: 'btn-danger',
+                  closeOnClick: false,
+                  callback: () => {
+                    hideModal();
+                    startOtaPlan(selectedGroup.version, steps);
+                  },
+                },
+                { text: 'Cancel' },
+              ]
+            );
+            return;
+          }
+
+          hideModal();
+          startOtaPlan(selectedGroup.version, steps);
+        },
+      },
+      { text: 'Cancel' },
+    ]);
+
+    wireUpdateModalInteractions(catalog, { forceUsb });
+  } catch (err) {
+    // Không lấy được danh sách version ⇒ mở sẵn đường USB Serial (Beta UI HTTPS, dùng
+    // Web Serial trên máy có internet) và cho thử lại sau khi đã cấp internet cho 1 trong 2 phía.
+    showModal('Cannot Fetch Firmware From Internet', `${err.message}`, [
+      {
+        text: 'Update via OTA',
+        class: 'btn-primary',
+        closeOnClick: false, // mở modal khác trong callback ⇒ không để showModal tự đóng
+        callback: () => showLocalWifiUpdateModal(),
+      },
+      { text: 'Retry', callback: () => checkAllUpdates() },
+      { text: 'Cancel' },
+    ]);
+  }
+}
+
+// ===== SAVE RELATIVE SETTINGS TO FRAM =====
+function saveRelativeSettings() {
+  if (isUpdatingFromWS) return; // Không gửi lệnh nếu đang trong quá trình đồng bộ UI từ Server
+  
+  const relativeConfig = {
+    relative: {
+      mode: document.getElementById('move-mode-toggle').checked,
+      d: parseInt(document.getElementById('rel-d').value) || 0,
+      m: parseInt(document.getElementById('rel-m').value) || 0,
+      s: parseInt(document.getElementById('rel-s').value) || 0
+    }
+  };
+  sendCommand('saveConfig', relativeConfig);
+}
+
+function initSteppers() {
+  document.querySelectorAll('.step-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const targetId = btn.dataset.target;
+      const step = parseInt(btn.dataset.step);
+      const input = document.getElementById(targetId);
+      
+      if (input) {
+        let val = parseInt(input.value) || 0;
+        let min = parseInt(input.getAttribute('min'));
+        let max = parseInt(input.getAttribute('max'));
+        
+        val += step;
+        if (!isNaN(min) && val < min) val = min;
+        if (!isNaN(max) && val > max) val = max;
+        
+        input.value = val;
+        updateStepperDisplay(targetId);
+        saveRelativeSettings(); // Lưu ngay khi thay đổi giá trị
+      }
+    });
+  });
+
+  // ===== NHẬP BẰNG BÀN PHÍM cho Relative D/M/S =====
+  // Giới hạn: độ 0-5, phút 0-59, giây 0-59 (khai báo trong min/max của input + ép lại khi gõ).
+  // Đang gõ: chỉ ép khoảng (không gửi lệnh) — Chốt (Enter/blur): chuẩn hoá rồi lưu vào FRAM thiết bị.
+  ['rel-d', 'rel-m', 'rel-s'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      const max = parseInt(el.getAttribute('max'));
+      if (el.value === '' || isNaN(max)) return;   // đang xoá để gõ lại
+      const v = parseInt(el.value);
+      if (isNaN(v)) return;
+      if (v > max) el.value = String(max);
+      else if (v < 0) el.value = '0';
+    });
+    el.addEventListener('change', () => {
+      updateStepperDisplay(id);
+      saveRelativeSettings();
+    });
+  });
+}
+
+// ===== JOG / RELATIVE MODE =====
+let isRelativeMode = false;
+
+function initControlMode() {
+  const toggle = document.getElementById('move-mode-toggle');
+  const options = document.getElementById('relative-options');
+  
+  if (toggle && options) {
+    toggle.addEventListener('change', (e) => {
+      isRelativeMode = e.target.checked;
+      if (isRelativeMode) {
+        options.classList.remove('hidden');
+      } else {
+        options.classList.add('hidden');
+      }
+      saveRelativeSettings(); // Lưu ngay khi thay đổi chế độ
+    });
+    
+    // Init state
+    isRelativeMode = toggle.checked;
+    if(!isRelativeMode) options.classList.add('hidden');
+    
+    // Initialize stepper buttons
+    initSteppers();
+  }
+}
+
+function initMotorModeChangeHandlers() {
+  const hlCheckbox = document.getElementById('enable-hardlimit');
+  const azSpread = document.getElementById('az-mode-spreadcycle');
+  const altSpread = document.getElementById('alt-mode-spreadcycle');
+  const azMstep = document.getElementById('az-microsteps');
+  const altMstep = document.getElementById('alt-microsteps');
+
+  const onSpreadChecked = (radioEl) => {
+    if (isUpdatingFromWS) return; // Không hiện modal khi load cấu hình từ server
+    
+    if (hlCheckbox && hlCheckbox.checked) {
+      showModal('Confirm Mode Change', 'SpreadCycle is not compatible with StallGuard (Hardlimit). Disable Hardlimit now?', [
+        { text: 'OK', class: 'btn-primary', callback: () => { 
+          hlCheckbox.checked = false; 
+          // Trigger change event manually to update monitor panel visibility if needed
+          hlCheckbox.dispatchEvent(new Event('change'));
+        } },
+        { text: 'Cancel', class: 'btn-secondary', callback: () => {
+          // Nếu Cancel, chọn lại nút StealthChop cho trục tương ứng
+          const axis = radioEl.id.startsWith('az') ? 'az' : 'alt';
+          const stealthRadio = document.getElementById(`${axis}-mode-stealthchop`);
+          if (stealthRadio) stealthRadio.checked = true;
+        } }
+      ]);
+    }
+  };
+
+// ===========================
+// SCROLL TO BOTTOM BUTTON
+// ===========================
+(function() {
+  const btn = document.getElementById('scroll-bottom-btn');
+  if (!btn) return;
+  window.addEventListener('scroll', function() {
+    const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 80);
+    btn.classList.toggle('visible', !nearBottom && window.scrollY > 200);
+  }, { passive: true });
+  btn.addEventListener('click', function() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  });
+})();
+
+  const onMstepChanged = (selectEl) => {
+    if (isUpdatingFromWS) return;
+    const val = parseInt(selectEl.value);
+    // Nếu chọn >= 64 mà Hardlimit đang bật thì yêu cầu tắt
+    if (val >= 64 && hlCheckbox && hlCheckbox.checked) {
+      showModal('High Microstep Alert', 'StallGuard (Hardlimit) is not reliable at >= 64 microsteps. Disable Hardlimit now?', [
+        { text: 'OK', class: 'btn-primary', callback: () => { 
+          hlCheckbox.checked = false; 
+          // Trigger change event manually to update UI & monitor status
+          hlCheckbox.dispatchEvent(new Event('change'));
+          selectEl.dataset.prev = val; // Cập nhật mốc mới
+        } },
+        { text: 'Cancel', class: 'btn-secondary', callback: () => {
+          // Trả về giá trị cũ nếu người dùng hủy
+          selectEl.value = selectEl.dataset.prev || 16;
+        } }
+      ]);
+    } else {
+      selectEl.dataset.prev = val;
+    }
+  };
+
+  if (azSpread) azSpread.addEventListener('change', (e) => { if (e.target.checked) onSpreadChecked(e.target); });
+  if (altSpread) altSpread.addEventListener('change', (e) => { if (e.target.checked) onSpreadChecked(e.target); });
+  if (azMstep) azMstep.addEventListener('change', (e) => onMstepChanged(e.target));
+  if (altMstep) altMstep.addEventListener('change', (e) => onMstepChanged(e.target));
+
+  // Chặn người dùng bật Hardlimit nếu vi bước đang >= 64
+  if (hlCheckbox) {
+    hlCheckbox.addEventListener('change', (e) => {
+      if (isUpdatingFromWS) return;
+      if (e.target.checked) {
+        const azVal = parseInt(azMstep ? azMstep.value : 0);
+        const altVal = parseInt(altMstep ? altMstep.value : 0);
+        if (azVal >= 64 || altVal >= 64) {
+          showModal('Action Blocked', 'Cannot enable Hardlimit when Microsteps are >= 64.<br>Please lower Microsteps to 16 or 32 first.', [{ text: 'OK', class: 'btn-primary' }]);
+          e.target.checked = false;
+        }
+      }
+    });
+  }
+}
+
+// ===== COLLAPSIBLE PANELS =====
+function initCollapsibles() {
+  const headers = document.querySelectorAll('.panel-header');
+  
+  headers.forEach(header => {
+    const panel = header.closest('.panel');
+    if (!panel) return;
+    
+    const panelId = panel.id;
+    
+    // Restore state from localStorage
+    if (panelId) {
+      const isCollapsed = localStorage.getItem('panel_collapsed_' + panelId) === 'true';
+      if (isCollapsed) {
+        panel.classList.add('collapsed');
+      }
+    }
+
+    header.addEventListener('click', (e) => {
+      // Chỉ ẩn/hiện panel khi click vào khu vực mũi tên (.toggle-icon)
+      if (!e.target.closest('.toggle-icon')) return;
+      
+      panel.classList.toggle('collapsed');
+      
+      // Save state
+      if (panelId) {
+        localStorage.setItem('panel_collapsed_' + panelId, panel.classList.contains('collapsed'));
+      }
+    });
+  });
+}
+
+// ===== INITIALIZATION =====
+window.addEventListener('load', () => {
+  // Ngăn trình duyệt tự động khôi phục vị trí cuộn cũ
+  if ('scrollRestoration' in history) {
+    history.scrollRestoration = 'manual';
+  }
+  
+  // Lấy phiên bản SPIFFS hiện tại từ HTML khi load trang
+  const spEl = document.getElementById('display-spiffs-ver');
+  if (spEl) {
+    const text = spEl.textContent;
+    currentSpiffsVer = extractVersion(text);
+    spEl.textContent = "spiffs " + currentSpiffsVer; // Đồng bộ định dạng hiển thị
+  }
+
+  window.scrollTo(0, 0);
+  setTimeout(() => {
+    window.scrollTo(0, 0);
+  }, 50);
+  connectWebSocket();
+  // Dò bản firmware mới hơn (nền, có cache) ⇒ hiện ✨ cạnh số version nếu có bản mới
+  startFwUpdateCheck();
+  initChart();
+  initTheme(); // Khởi tạo theme
+  initCollapsibles(); // Init panels
+  initControlMode(); // Init control mode
+  initMotorModeChangeHandlers(); // Logic SpreadCycle -> Disable Hardlimit
+
+  // #23: ô mDNS name — lọc ký tự (chữ/số/gạch ngang, ≤31) + hậu tố ".local" bám ngay sau tên đang gõ
+  (function initMdnsNameInput() {
+    const el = document.getElementById('mdns-name');
+    const ghost = document.getElementById('mdns-ghost-text');
+    if (!el) return;
+    const upd = () => {
+      const clean = el.value.replace(/[^A-Za-z0-9-]/g, '').slice(0, 31);
+      if (clean !== el.value) el.value = clean;
+      if (ghost) ghost.textContent = el.value || el.placeholder || '';
+    };
+    el.addEventListener('input', upd);
+    el.addEventListener('change', upd);
+    upd();
+  })();
+
+  // Tự động trả về giới hạn cho max-speed
+  const maxSpeedInput = document.getElementById('max-speed');
+  if (maxSpeedInput) {
+    maxSpeedInput.addEventListener('change', (e) => {
+      let val = parseFloat(e.target.value);
+      if (val < 50) e.target.value = 50;
+      if (val > 300) e.target.value = 300;
+    });
+  }
+  
+  // Không load từ localStorage nữa, đợi WebSocket gửi speedLevel từ ESP32 về
+  // để đảm bảo đồng bộ với thiết bị.
+  
+  // Update system info
+  const uptime = '0h 0m';
+  const fram = '0KB / 32KB';
+  const sysInfo = document.getElementById('system-info');
+  if (sysInfo) {
+    sysInfo.textContent = `Uptime: ${uptime} | FRAM: ${fram}`;
+  }
+
+  // MỞ SẴN tab CONFIG + modal "Available Updates" khi trang được mở kèm cờ ?updates=1 (hoặc #updates).
+  // Trên thiết bị (http://192.168.4.1/...) URL không có cờ này ⇒ KHÔNG ảnh hưởng gì; chỉ trang
+  // Beta UI (HTTPS, mở từ nút "Open Beta UI" của modal update) mới có cờ ⇒ nhảy sang tab CONFIG
+  // (nơi có nút kiểm tra cập nhật), tự kiểm tra và bật luôn modal.
+  // Cùng 1 file script dùng cho cả 2 nơi (data/ -> HardwareUpdate/docs/).
+  // `?updates=1` (hoặc `?update=1`) hoặc `#updates` ⇒ tự mở modal "Available Updates".
+  // Nút bấm trên số version ở header dùng cờ này (xem openUpdateModalPage).
+  const autoOpenParams = new URLSearchParams(window.location.search);
+  const autoOpenUpdates = autoOpenParams.has('updates')
+    || autoOpenParams.has('update')
+    || window.location.hash === '#updates';
+  if (autoOpenUpdates) {
+    // Hoãn nhẹ để các init khác (theme/panel/WS) chạy xong trước khi chuyển tab + hiện modal.
+    setTimeout(() => {
+      switchTab('config');
+      checkAllUpdates();
+    }, 300);
+  }
+});
+
+// ===== STATUS LINK TO LOG =====
+const statusLink = document.getElementById('status-link');
+if (statusLink) {
+  statusLink.addEventListener('click', () => {
+    const logSection = document.getElementById('log-panel-section');
+    const controlTabBtn = document.querySelector('.tab-btn[data-tab="control"]');
+    const controlTabContent = document.getElementById('control-tab');
+    const configTabBtn = document.querySelector('.tab-btn[data-tab="config"]');
+    const configTabContent = document.getElementById('config-tab');
+
+    // Switch to Control tab if not active
+    if (controlTabBtn && controlTabContent && !controlTabContent.classList.contains('active')) {
+      if(configTabContent) configTabContent.classList.remove('active');
+      if(configTabBtn) configTabBtn.classList.remove('active');
+      
+      controlTabContent.classList.add('active');
+      controlTabBtn.classList.add('active');
+    }
+
+    // Scroll to log section after a short delay to allow tab to render
+    if (logSection) {
+      setTimeout(() => {
+        logSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50); 
+    }
+  });
+}
+// ===== KEYBOARD CONTROLS — ĐÃ TẮT (user chốt 2026-09-23) =====
+// Web UI KHÔNG còn điều khiển motor bằng bàn phím. Toàn bộ code giữ nguyên dưới dạng comment
+// để khôi phục sau này: bỏ cặp /* ... */ là bật lại
+// (mũi tên = jog Alt/Az theo Speed Level đang chọn, Space = STOP, nhả phím = stopMove giảm tốc).
+/* [KEYBOARD CONTROLS - DISABLED]
+document.addEventListener('keydown', (e) => {
+  // Nếu đang nhập liệu (input/textarea) thì không xử lý phím tắt (để gõ được dấu cách)
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  // Bỏ qua auto-repeat khi GIỮ phím: chỉ gửi ĐÚNG 1 lệnh "move" cho mỗi lần nhấn.
+  // Nếu không, giữ phím mũi tên → trình duyệt lặp keydown → spam "move" qua WebSocket,
+  // mỗi lệnh lại tái-kích hoạt move(±1e9) → nuốt lệnh dừng soft-limit/STOP/ESTOP
+  // (motor cứ chạy qua biên, STOP "không dừng", phải thả phím mới dừng hẳn).
+  if (e.repeat) return;
+
+  const speedLevel = document.querySelector('.speed-btn.active').dataset.level;
+  
+  switch(e.key) {
+    case 'ArrowUp':
+      sendCommand('move', { axis: 'alt', direction: 1, speed: speedLevel });
+      e.preventDefault();
+      break;
+    case 'ArrowDown':
+      sendCommand('move', { axis: 'alt', direction: -1, speed: speedLevel });
+      e.preventDefault();
+      break;
+    case 'ArrowLeft':
+      sendCommand('move', { axis: 'az', direction: -1, speed: speedLevel });
+      e.preventDefault();
+      break;
+    case 'ArrowRight':
+      sendCommand('move', { axis: 'az', direction: 1, speed: speedLevel });
+      e.preventDefault();
+      break;
+    case ' ':
+      sendCommand('stop', {});
+      e.preventDefault();
+      break;
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  // Nhả phím mũi tên = giảm tốc mượt theo trục (stopMove), không dừng đột ngột.
+  const axisByKey = { ArrowUp: 'alt', ArrowDown: 'alt', ArrowLeft: 'az', ArrowRight: 'az' };
+  const axis = axisByKey[e.key];
+  if (axis) {
+    sendCommand('stopMove', { axis });
+  }
+});
+*/
+
+// Prevent context menu (long press)
+document.addEventListener('contextmenu', (e) => {
+  // Allow context menu on inputs
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+  }
+});
+
+let panelWheelLock = false;
+let panelWheelAccum = 0;
+let panelWheelResetTimer = null;
+const PANEL_WHEEL_SNAP_THRESHOLD = 220;
+
+function getActivePanels() {
+  const activeTab = document.querySelector('.tab-content.active');
+  if (!activeTab) return [];
+  return Array.from(activeTab.querySelectorAll('.panel')).filter((panel) => !panel.classList.contains('hidden'));
+}
+
+function scrollToAdjacentPanel(direction) {
+  const panels = getActivePanels();
+  if (!panels.length) return;
+
+  const header = document.querySelector('.header');
+  const stickyOffset = (header ? header.offsetHeight : 0) + 8;
+  const currentTop = window.scrollY + stickyOffset;
+
+  let currentIndex = 0;
+  for (let i = 0; i < panels.length; i++) {
+    if (panels[i].offsetTop <= currentTop) {
+      currentIndex = i;
+    } else {
+      break;
+    }
+  }
+
+  const nextIndex = Math.max(0, Math.min(panels.length - 1, currentIndex + direction));
+  if (nextIndex === currentIndex) return;
+
+  panels[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Mouse wheel: small movement scrolls normally, strong movement snaps to next/previous panel
+document.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) {
+    e.preventDefault(); // Prevent Ctrl+Wheel Zoom
+    return;
+  }
+
+  if (e.target.tagName === 'INPUT') {
+    e.preventDefault();
+    return;
+  }
+
+  // Keep native wheel behavior in internal scroll containers.
+  if (e.target.closest('.history-list, .wifi-list, .modal-body')) {
+    return;
+  }
+
+  if (panelWheelLock) {
+    e.preventDefault();
+    return;
+  }
+
+  if (Math.abs(e.deltaY) < 8) {
+    return;
+  }
+
+  panelWheelAccum += e.deltaY;
+  if (panelWheelResetTimer) clearTimeout(panelWheelResetTimer);
+  panelWheelResetTimer = setTimeout(() => {
+    panelWheelAccum = 0;
+    panelWheelResetTimer = null;
+  }, 180);
+
+  if (Math.abs(panelWheelAccum) < PANEL_WHEEL_SNAP_THRESHOLD) {
+    return;
+  }
+
+  e.preventDefault();
+  panelWheelLock = true;
+  const direction = panelWheelAccum > 0 ? 1 : -1;
+  panelWheelAccum = 0;
+  scrollToAdjacentPanel(direction);
+
+  setTimeout(() => {
+    panelWheelLock = false;
+  }, 420);
+}, { passive: false });
+
+// Prevent Pinch Zoom (Mobile)
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// Prevent negative input on DMS fields
+document.querySelectorAll('.dms-field').forEach(input => {
+  input.addEventListener('input', (e) => {
+    let val = parseInt(e.target.value);
+    if (isNaN(val)) return; // Cho phép xóa trống
+    
+    if (val < 0) val = Math.abs(val);
+    
+    const max = parseInt(e.target.getAttribute('max'));
+    if (!isNaN(max) && val > max) val = max;
+    
+    e.target.value = val;
+  });
+});
