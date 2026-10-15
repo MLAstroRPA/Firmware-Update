@@ -340,7 +340,7 @@ body {
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--input-bg);
+  background: var(--header-bg);
 }
 
 .version-item {
@@ -359,6 +359,20 @@ body {
 
 .version-item:hover {
   background: rgba(52, 152, 219, 0.05);
+}
+
+/* Highlight the release whose radio is ticked */
+.version-item.is-selected {
+  background: rgba(52, 152, 219, 0.16);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.version-item.is-selected .version-num {
+  color: var(--primary);
+}
+
+.version-item.is-selected:hover {
+  background: rgba(52, 152, 219, 0.22);
 }
 
 .version-item input[type="radio"] {
@@ -405,6 +419,15 @@ body {
   line-height: 1.4;
 }
 
+.version-meta code {
+  color: var(--primary);
+  background: var(--bg-card);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
 /* Badges */
 .badge {
   font-size: 11px;
@@ -442,90 +465,6 @@ body {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* --- OPTIONS GRID & CHECKBOXES --- */
-.options-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-
-.checkbox-label:hover {
-  border-color: var(--primary);
-}
-
-.checkbox-label input[type="checkbox"] {
-  accent-color: var(--primary);
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
-.checkbox-text {
-  font-size: 13px;
-  color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* Local picker card */
-.local-picker-card {
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.file-pick-hint {
-  font-size: 12px;
-}
-
-.local-file-chips {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.file-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  font-size: 12px;
-}
-
-.file-chip.chip-highlight {
-  border-color: var(--primary);
-  background: rgba(52, 152, 219, 0.1);
-}
-
-.chip-label {
-  font-weight: 700;
-  color: var(--primary);
-}
-
-.chip-name {
-  color: var(--text-main);
 }
 
 /* --- USB FLASH DASHBOARD --- */

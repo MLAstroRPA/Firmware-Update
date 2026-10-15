@@ -58,7 +58,7 @@
       <div class="notice-body">
         <div class="notice-title">Web Serial USB Flasher</div>
         <div class="notice-text">
-          Connect your <strong>MLAstro RPA</strong> mount to your PC with a USB cable, choose a firmware version below, and click <strong>CONNECT</strong> to flash. No developer software required.
+          Connect your <strong>MLAstro RPA</strong> mount to your PC with a USB cable, choose a release below, and click <strong>CONNECT</strong> to flash. No developer software required.
         </div>
       </div>
     </div>
@@ -76,7 +76,7 @@
         <!-- Step 1: Version Selection -->
         <div class="section-block">
           <div class="step-label"><span class="step-badge">1</span> Select Release Version</div>
-          <p class="step-desc">Pick an official release package from the repository, or check the box below to flash offline <code>.bin</code> files.</p>
+          <p class="step-desc">Pick an official release. Every release is a single full-flash image (<code>MLAstroRPA-full-X.Y.Z.bin</code>) written at <code>0x0</code> &mdash; bootloader, partition table, firmware and Web UI in one file.</p>
           
           <div id="online-version-list" class="version-list-box">
             <div class="loading-state">
@@ -85,54 +85,9 @@
           </div>
         </div>
 
-        <!-- Step 2: Options (Bootloader / Partitions / Local) -->
+        <!-- Step 2: Flash Dashboard -->
         <div class="section-block">
-          <div class="step-label"><span class="step-badge">2</span> Flash Options</div>
-          
-          <div class="options-grid">
-            <label class="checkbox-label" id="row-bootloader">
-              <input type="checkbox" id="include-bootloader">
-              <span class="checkbox-text">
-                <strong>bootloader.bin</strong>
-                <small class="text-muted">(Required for first-time flash or recovery)</small>
-              </span>
-            </label>
-
-            <label class="checkbox-label" id="row-partitions">
-              <input type="checkbox" id="include-partitions">
-              <span class="checkbox-text">
-                <strong>partitions.bin</strong>
-                <small class="text-muted">(Required for first-time flash or partition changes)</small>
-              </span>
-            </label>
-
-            <label class="checkbox-label" id="row-local-update">
-              <input type="checkbox" id="update-local-offline">
-              <span class="checkbox-text">
-                <strong>Local update</strong>
-                <small class="text-muted">(Use offline .bin files from your computer)</small>
-              </span>
-            </label>
-          </div>
-
-          <!-- Local files picker (Revealed when local update is checked) -->
-          <div id="local-update-options" class="local-picker-card hidden">
-            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-              <input type="file" id="local-update-files" multiple accept=".bin" class="hidden">
-              <button type="button" class="btn btn-secondary btn-small" id="pick-local-update-files">
-                <svg class="ico"><use href="#i-file"/></svg> Select Local .bin Files
-              </button>
-              <span class="file-pick-hint text-muted">
-                Recognised by filename: <code>firmware</code>, <code>spiffs</code>, <code>bootloader</code>, <code>partitions</code>, or merged full image (<code>MLAstroRPA-full-*.bin</code>).
-              </span>
-            </div>
-            <div id="local-update-file-list" class="local-file-chips"></div>
-          </div>
-        </div>
-
-        <!-- Step 3: Flash Dashboard -->
-        <div class="section-block">
-          <div class="step-label"><span class="step-badge">3</span> Connect &amp; Flash</div>
+          <div class="step-label"><span class="step-badge">2</span> Connect &amp; Flash</div>
           
           <div id="usb-flash-host" class="usb-flash-container">
             <!-- Rendered by JS via ESP Web Tools -->
@@ -172,7 +127,7 @@
           <li><strong>Supported Browsers:</strong> Google Chrome, Microsoft Edge, Opera, or Chromium on Windows, macOS, Linux, and ChromeOS. Safari and Firefox do not support Web Serial.</li>
           <li><strong>USB Cable:</strong> Use a high-quality data cable. Some cables only provide power and cannot carry USB Serial communication.</li>
           <li><strong>USB Driver:</strong> Ensure the Silicon Labs CP2102 USB-to-UART driver is installed if your computer does not automatically recognize the mount.</li>
-          <li><strong>First-time / Recovery Flash:</strong> Check both <code>bootloader.bin</code> and <code>partitions.bin</code> alongside the firmware package to perform a full clean install.</li>
+          <li><strong>First-time / Recovery Flash:</strong> Every release is the merged <code>MLAstroRPA-full-X.Y.Z.bin</code> image written at <code>0x0</code>, so it already contains the bootloader and the partition table &mdash; a single file is enough for a full clean install.</li>
           <li><strong>Need help?</strong> <a href="https://github.com/MLAstroRPA/Firmware-Update/issues" target="_blank">Report an issue on GitHub</a> or contact <code>trong.minh@mlastro.com</code>.</li>
         </ul>
       </div>

@@ -8,6 +8,7 @@ Official release repository for the **MLAstroRPA** Robotic Polar Alignment mount
 
 | Path | Description |
 |---|---|
+| `MLAstroRPA-full-X.Y.Z.bin` | Merged full-flash image (bootloader + partitions + firmware + SPIFFS) written at `0x0` as one single file — this is the file the USB update page flashes. |
 | `firmware X.Y.Z.bin` | ESP32 application firmware (versioned). |
 | `spiffs X.Y.Z.bin` | Web UI assets (`index.html`, `script.js`, `style.css`). |
 | `bootloader.bin` | ESP32 bootloader (rarely changes). |
@@ -57,7 +58,7 @@ The mount gets internet by joining your Wi-Fi **router** in **Station mode**. It
 
    **https://mlastrorpa.github.io/Firmware-Update/?updates=1**
 
-3. Choose the version (also tick `partitions.bin` and `bootloader.bin` if needed). Click [CONNECT] to open USB flash dashboard then follow the on-screen prompts.
+3. Choose a release — every version is the merged `MLAstroRPA-full-X.Y.Z.bin` image written at `0x0`. Click [CONNECT] to open USB flash dashboard then follow the on-screen prompts.
 
 
 > ⚠️ Do not power off or disconnect the device during any update.
