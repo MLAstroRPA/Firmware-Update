@@ -336,7 +336,7 @@ body {
 
 /* --- VERSION LIST --- */
 .version-list-box {
-  max-height: 320px;
+  max-height: 640px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
