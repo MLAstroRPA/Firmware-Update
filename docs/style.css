@@ -412,6 +412,10 @@ body {
   flex-wrap: wrap;
 }
 
+.version-size:empty {
+  display: none;
+}
+
 .version-desc {
   font-size: 12px;
   color: var(--text-muted);
