@@ -110,5 +110,19 @@
     "version": "1.15.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-08T03:17:18Z"
+  },
+  "firmware 1.16.0.bin": {
+    "description": "[v1.16.0] [New feat] OTA is blocked when the selected release has a different major version than the installed firmware - the Web UI explains it and opens the Firmware Update Tool (serial upload) instead. [UI] the Update modal is centered and fits the screen, only the version list scrolls, the selected version row is highlighted and the download icon sits in front of Package. [Changed] default backlash is now AZ 60000 / ALT 20000 steps.",
+    "type": "firmware",
+    "version": "1.16.0",
+    "size_bytes": 1310592,
+    "release_date_utc": "2026-10-20T15:01:01Z"
+  },
+  "spiffs 1.16.0.bin": {
+    "description": "[v1.16.0] [New feat] OTA is blocked when the selected release has a different major version than the installed firmware - the Web UI explains it and opens the Firmware Update Tool (serial upload) instead. [UI] the Update modal is centered and fits the screen, only the version list scrolls, the selected version row is highlighted and the download icon sits in front of Package. [Changed] default backlash is now AZ 60000 / ALT 20000 steps.",
+    "type": "spiffs",
+    "version": "1.16.0",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-10-20T15:01:01Z"
   }
 }

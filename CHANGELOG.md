@@ -4,6 +4,14 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.16.0] - 2026-10-20
+
+### Added — OTA is blocked when the selected release has a different major version than the installed firmware (backward-incompatible releases need the serial uploader, the Web UI offers the Firmware Update Tool)
+
+### Changed — Update modal on the device Web UI: centered and fitted to the viewport, only the version list scrolls, the selected version row is highlighted, the download icon moved in front of "Package:", and the in-page serial upload block is replaced by the Firmware Update Tool link
+
+### Changed — default backlash is now AZ 60000 steps / ALT 20000 steps (was 77917 / 1000)
+
 ## [1.15.0] - 2026-10-08
 
 - Added — one-shot online report per power-on: as soon as the STA link has real internet the firmware POSTs a fixed device name (`MLAstroRPA`), its serial number (base MAC), the WiFi SSID in use and the firmware version to the MLAstro device collector (Google Apps Script behind the PWON list), which keeps one row per MAC with first/last online time and an online counter. Sent once per power-on, never repeated, and silent — no Serial output and no Web/plugin log line; if the collector is unreachable the firmware simply carries on
