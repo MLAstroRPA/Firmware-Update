@@ -124,5 +124,19 @@
     "version": "1.16.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-10-20T15:01:01Z"
+  },
+  "firmware 1.16.1.bin": {
+    "description": "[v1.16.1] [Changed] Hard Limit (StallGuard) is off by default - enable it in CONFIG and save & reboot if you want the collision protection. [UI] the CONTROL tab uses the new four-way triangle icon and its label stays readable on hover.",
+    "type": "firmware",
+    "version": "1.16.1",
+    "size_bytes": 1310592,
+    "release_date_utc": "2026-11-04T12:19:09Z"
+  },
+  "spiffs 1.16.1.bin": {
+    "description": "[v1.16.1] [Changed] Hard Limit (StallGuard) is off by default - enable it in CONFIG and save & reboot if you want the collision protection. [UI] the CONTROL tab uses the new four-way triangle icon and its label stays readable on hover.",
+    "type": "spiffs",
+    "version": "1.16.1",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-11-04T12:19:09Z"
   }
 }

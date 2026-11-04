@@ -4,6 +4,12 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.16.1] - 2026-11-04
+
+### Changed — Hard Limit (StallGuard) is off by default; enable it in CONFIG and save & reboot if you want the collision protection
+
+### Changed — CONTROL tab uses the new four-way triangle icon and the tab label stays readable on hover (white text instead of the dark accent colour)
+
 ## [1.16.0] - 2026-10-20
 
 ### Added — OTA is blocked when the selected release has a different major version than the installed firmware (backward-incompatible releases need the serial uploader, the Web UI offers the Firmware Update Tool)
