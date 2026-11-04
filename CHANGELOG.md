@@ -6,7 +6,7 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ## [1.16.1] - 2026-11-04
 
-### Changed — Hard Limit (StallGuard) is off by default; enable it in CONFIG and save & reboot if you want the collision protection
+### Changed — hardcode disable stallguard (hardlimit)
 
 ### Changed — CONTROL tab uses the new four-way triangle icon and the tab label stays readable on hover (white text instead of the dark accent colour)
 
