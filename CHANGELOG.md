@@ -4,6 +4,14 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.17.1] - 2026-11-26
+
+### Fixed — APPLY no longer panics with a stack overflow: the ~6 KB config snapshot is built on the heap instead of the stack of the async_tcp task
+
+### Fixed — the access point is now published only after the station has settled (IP assigned, boot probe finished, no retry pending) and on the station channel, and the station is no longer retried while a client is attached to the AP — clients no longer get stuck at the WPA2 handshake ("wrong password") or join without traffic until a manual reset
+
+### Changed — boot no longer blocks for 8 s waiting for the station: the access point is brought up from the network task, so the serial / motor control starts immediately
+
 ## [1.17.0] - 2026-11-26
 
 ### Added — Station SSID is now a dropdown of the networks saved in FRAM (connected one first), with the saved password of the picked network shown on demand and a delete action that only takes effect on SAVE & REBOOT
@@ -14,6 +22,8 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ### Fixed — the AP / STA password inputs are now the same height as the other fields (the in-field eye button no longer makes them taller)
 ### Fixed â€” APPLY no longer writes the WiFi (STA) credentials used by the network task (cross-core String write that caused one panic) and the config snapshot has more room plus an overflow warning
+
+### Fixed â€” APPLY no longer panics from a stack overflow: the ~6 KB config snapshot is built on the heap instead of the stack of the `async_tcp` task
 
 ### Changed â€” flash coredump is enabled: a panic is saved to the coredump partition and can be decoded with esp-coredump from a flash dump
 ## [1.16.2] - 2026-11-16

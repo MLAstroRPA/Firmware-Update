@@ -152,5 +152,19 @@
     "version": "1.17.0",
     "size_bytes": 425984,
     "release_date_utc": "2026-11-26T11:10:12Z"
+  },
+  "firmware 1.17.1.bin": {
+    "description": "[v1.17.1] [Fix] the access point is now published only after the station has settled (IP assigned) and it uses the station channel; the station is no longer retried while a client is on the AP - no more wrong-password or join-without-traffic after flashing or rebooting. The config snapshot is built on the heap so APPLY no longer panics.",
+    "type": "firmware",
+    "version": "1.17.1",
+    "size_bytes": 1317504,
+    "release_date_utc": "2026-11-26T17:39:45Z"
+  },
+  "spiffs 1.17.1.bin": {
+    "description": "[v1.17.1] [Fix] the access point is now published only after the station has settled (IP assigned) and it uses the station channel; the station is no longer retried while a client is on the AP - no more wrong-password or join-without-traffic after flashing or rebooting. The config snapshot is built on the heap so APPLY no longer panics.",
+    "type": "spiffs",
+    "version": "1.17.1",
+    "size_bytes": 425984,
+    "release_date_utc": "2026-11-26T17:39:45Z"
   }
 }
