@@ -13,7 +13,9 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 ### Changed — the Web UI reloads itself after REBOOT and after FACTORY RESET, and HTTP responses are sent no-cache so phones stop showing a stale UI
 
 ### Fixed — the AP / STA password inputs are now the same height as the other fields (the in-field eye button no longer makes them taller)
+### Fixed â€” APPLY no longer writes the WiFi (STA) credentials used by the network task (cross-core String write that caused one panic) and the config snapshot has more room plus an overflow warning
 
+### Changed â€” flash coredump is enabled: a panic is saved to the coredump partition and can be decoded with esp-coredump from a flash dump
 ## [1.16.2] - 2026-11-16
 
 ### Changed — Max Motor RPM (Speed Level 5) is set per axis: **Az Max Motor RPM** and **Alt Max Motor RPM** (Admin Config). Range is now 50-500 (was 50-300). Existing devices keep their previous shared value on both axes after the update
