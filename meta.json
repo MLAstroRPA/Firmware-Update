@@ -140,14 +140,14 @@
     "release_date_utc": "2026-11-04T12:19:09Z"
   },
   "firmware 1.17.0.bin": {
-    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache; AP/STA password fields now match the other input heights.",
     "type": "firmware",
     "version": "1.17.0",
     "size_bytes": 1315280,
     "release_date_utc": "2026-11-26T11:10:12Z"
   },
   "spiffs 1.17.0.bin": {
-    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache; AP/STA password fields now match the other input heights.",
     "type": "spiffs",
     "version": "1.17.0",
     "size_bytes": 425984,
