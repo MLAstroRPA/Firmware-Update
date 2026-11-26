@@ -4,6 +4,22 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.17.0] - 2026-11-26
+
+### Added — Station SSID is now a dropdown of the networks saved in FRAM (connected one first), with the saved password of the picked network shown on demand and a delete action that only takes effect on SAVE & REBOOT
+
+### Changed — APPLY now pushes the edited WiFi (STA) values into RAM so the field no longer jumps back, and the Web UI keeps values the user just edited until the device confirms them
+
+### Changed — the Web UI reloads itself after REBOOT and after FACTORY RESET, and HTTP responses are sent no-cache so phones stop showing a stale UI
+
+## [1.16.2] - 2026-11-16
+
+### Changed — Max Motor RPM (Speed Level 5) is set per axis: **Az Max Motor RPM** and **Alt Max Motor RPM** (Admin Config). Range is now 50-500 (was 50-300). Existing devices keep their previous shared value on both axes after the update
+
+### Changed — factory defaults (blank FRAM / FACTORY RESET only, existing settings are not overwritten): Max Motor RPM Az 300 / Alt 200, Az microsteps 16 (Alt stays 32), hold current 500 mA on both axes
+
+### Fixed — the Max Motor RPM unit hint showed "50-400" while the firmware capped it at 300
+
 ## [1.16.1] - 2026-11-04
 
 ### Changed — hardcode disable stallguard (hardlimit)
