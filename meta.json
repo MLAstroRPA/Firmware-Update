@@ -140,14 +140,14 @@
     "release_date_utc": "2026-11-04T12:19:09Z"
   },
   "firmware 1.17.0.bin": {
-    "description": "[v1.17.0] [New] Station SSID is a dropdown of the networks saved in FRAM (connected one first) with the saved password on demand and a delete that only applies on SAVE & REBOOT. [Changed] APPLY no longer reverts the WiFi fields you just edited, the Web UI reloads itself after REBOOT and FACTORY RESET, and HTTP responses are no-cache so phones stop showing a stale UI. [Also contains v1.16.2] per-axis Max Motor RPM (50-500) and new factory defaults: RPM Az 300 / Alt 200, Az microstep 16, hold 500 mA.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) and new factory defaults (RPM Az 300 / Alt 200, Az microstep 16, hold 500 mA); Station SSID is a dropdown of the networks saved in FRAM (connected one first) with the saved password on demand and a delete that only applies on SAVE & REBOOT. [Changed] APPLY no longer reverts the WiFi fields you just edited, the Web UI reloads itself after REBOOT and FACTORY RESET, and HTTP responses are no-cache so phones stop showing a stale UI.",
     "type": "firmware",
     "version": "1.17.0",
     "size_bytes": 1315280,
     "release_date_utc": "2026-11-26T11:10:12Z"
   },
   "spiffs 1.17.0.bin": {
-    "description": "[v1.17.0] [New] Station SSID is a dropdown of the networks saved in FRAM (connected one first) with the saved password on demand and a delete that only applies on SAVE & REBOOT. [Changed] APPLY no longer reverts the WiFi fields you just edited, the Web UI reloads itself after REBOOT and FACTORY RESET, and HTTP responses are no-cache so phones stop showing a stale UI. [Also contains v1.16.2] per-axis Max Motor RPM (50-500) and new factory defaults: RPM Az 300 / Alt 200, Az microstep 16, hold 500 mA.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) and new factory defaults (RPM Az 300 / Alt 200, Az microstep 16, hold 500 mA); Station SSID is a dropdown of the networks saved in FRAM (connected one first) with the saved password on demand and a delete that only applies on SAVE & REBOOT. [Changed] APPLY no longer reverts the WiFi fields you just edited, the Web UI reloads itself after REBOOT and FACTORY RESET, and HTTP responses are no-cache so phones stop showing a stale UI.",
     "type": "spiffs",
     "version": "1.17.0",
     "size_bytes": 425984,
