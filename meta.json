@@ -140,17 +140,17 @@
     "release_date_utc": "2026-11-04T12:19:09Z"
   },
   "firmware 1.17.0.bin": {
-    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields but no longer rewrites the WiFi credentials owned by the network task (panic fix); config snapshot has more room plus an overflow warning; flash coredump enabled; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache; AP/STA password fields now match the other input heights.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] the access point is published only after the station settles (or when no saved network can be joined) and on the station channel, so phones no longer report a wrong password / join without traffic; changing the station SSID no longer copies the previous password (the saved password of the new SSID is used); serial WAdd takes <ssid>|<pass>; APPLY builds the config snapshot on the heap (panic fix); UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache.",
     "type": "firmware",
     "version": "1.17.0",
-    "size_bytes": 1315312,
-    "release_date_utc": "2026-11-26T11:10:12Z"
+    "size_bytes": 1319520,
+    "release_date_utc": "2026-11-27T00:00:00Z"
   },
   "spiffs 1.17.0.bin": {
-    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] APPLY keeps the edited WiFi/AP/mDNS fields but no longer rewrites the WiFi credentials owned by the network task (panic fix); config snapshot has more room plus an overflow warning; flash coredump enabled; UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache; AP/STA password fields now match the other input heights.",
+    "description": "[v1.17.0] [New] per-axis Max Motor RPM (Az/Alt, 50-500) + new defaults (RPM 300/200, Az mstep 16, hold 500 mA); Station SSID dropdown of saved WiFi (connected first, saved password on demand, delete applies on SAVE & REBOOT). [Fix] the access point is published only after the station settles (or when no saved network can be joined) and on the station channel, so phones no longer report a wrong password / join without traffic; changing the station SSID no longer copies the previous password (the saved password of the new SSID is used); serial WAdd takes <ssid>|<pass>; APPLY builds the config snapshot on the heap (panic fix); UI auto-reloads after REBOOT / FACTORY RESET; HTTP responses no-cache.",
     "type": "spiffs",
     "version": "1.17.0",
     "size_bytes": 425984,
-    "release_date_utc": "2026-11-26T11:10:12Z"
+    "release_date_utc": "2026-11-27T00:00:00Z"
   }
 }
