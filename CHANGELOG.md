@@ -4,6 +4,14 @@ All notable changes to MLAstroRPA Webserver will be documented in this file.
 
 ---
 
+## [1.17.2] - 2026-11-27
+
+### Fixed — the access point is now published when no saved station network can be joined: the retry gate no longer uses `softAPIP()` (Arduino pre-sets 192.168.4.1 for the AP netif), and the WiFi stack is re-initialised once before the AP is raised so its IP traffic works
+
+### Fixed — changing the station SSID with an empty password field no longer inherits the password of the previous network (the saved password of the newly selected SSID is used instead)
+
+### Fixed — the serial `WAdd` command takes `<ssid>|<pass>` (the comma was split by the command parser, storing the network with an empty password)
+
 ## [1.17.1] - 2026-11-26
 
 ### Fixed — APPLY no longer panics with a stack overflow: the ~6 KB config snapshot is built on the heap instead of the stack of the async_tcp task
